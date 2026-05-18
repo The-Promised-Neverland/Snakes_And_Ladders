@@ -45,12 +45,14 @@ jobs:
 
       - name: Create release archive
         run: |
+          mkdir -p /tmp/snakeladder-release
           tar \
             --exclude=.git \
+            --exclude=release.tar.gz \
             --exclude=SL_Frontend/node_modules \
             --exclude=SL_Frontend/.next \
             --exclude=SL_Frontend/tsconfig.tsbuildinfo \
-            -czf release.tar.gz \
+            -czf /tmp/snakeladder-release/release.tar.gz \
             .
 
       - name: Copy release bundle to EC2
@@ -59,7 +61,7 @@ jobs:
           host: ${{ secrets.ELASTIC_IP }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "release.tar.gz"
+          source: "/tmp/snakeladder-release/release.tar.gz"
           target: "/opt/snakeladder"
 
       - name: Write deployment environment file on EC2
