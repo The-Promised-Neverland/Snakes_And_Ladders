@@ -2,7 +2,6 @@
 set -eu
 
 APP_DIR="${APP_DIR:-/home/ec2-user/snakeladder}"
-RELEASE_ARCHIVE="${RELEASE_ARCHIVE:-$APP_DIR/release.tar.gz}"
 ENV_FILE="$APP_DIR/.env"
 COMPOSE_FILE="$APP_DIR/docker-compose.ec2.yml"
 
@@ -41,14 +40,21 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-if [ ! -f "$RELEASE_ARCHIVE" ]; then
-  echo "release archive not found at $RELEASE_ARCHIVE" >&2
+. "$ENV_FILE"
+
+if [ ! -f "$COMPOSE_FILE" ]; then
+  echo "docker compose file not found at $COMPOSE_FILE" >&2
   exit 1
 fi
 
-tar -xzf "$RELEASE_ARCHIVE" -C "$APP_DIR"
+if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+  echo "DOCKERHUB_USERNAME and DOCKERHUB_TOKEN must be set in $ENV_FILE" >&2
+  exit 1
+fi
 
-$COMPOSE_CMD --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build
+echo "$DOCKERHUB_TOKEN" | $DOCKER_CMD login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+$COMPOSE_CMD --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull
 $COMPOSE_CMD --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans
 
 $DOCKER_CMD image prune -f

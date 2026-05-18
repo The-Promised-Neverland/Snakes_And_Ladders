@@ -13,7 +13,8 @@ FROM alpine:3.22
 
 WORKDIR /app
 
-RUN adduser -D -H -u 10001 appuser
+RUN apk add --no-cache wget && \
+    adduser -D -H -u 10001 appuser
 
 COPY --from=builder /out/server /app/server
 
