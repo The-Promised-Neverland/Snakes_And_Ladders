@@ -1,0 +1,44 @@
+services:
+  slbackend:
+    container_name: SnakeLadder_Server
+    build:
+      context: ./SL_Backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 9090
+    ports:
+      - "${BACKEND_HOST_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - snake_ladder_net
+
+  slfrontend:
+    container_name: SnakeLadder_Frontend
+    build:
+      context: ./SL_Frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${FRONTEND_API_BASE_URL}
+    restart: unless-stopped
+    depends_on:
+      - slbackend
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - snake_ladder_net
+
+networks:
+  snake_ladder_net:
+    name: snake_ladder_net

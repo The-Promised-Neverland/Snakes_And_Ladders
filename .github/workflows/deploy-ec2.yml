@@ -1,0 +1,87 @@
+name: CI/CD Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./SL_Backend/go.mod
+
+      - name: Run backend tests
+        working-directory: ./SL_Backend
+        run: go test ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ./SL_Frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./SL_Frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./SL_Frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://${{ secrets.ELASTIC_IP }}:9090
+        run: npm run build
+
+      - name: Create release archive
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=SL_Frontend/node_modules \
+            --exclude=SL_Frontend/.next \
+            --exclude=SL_Frontend/tsconfig.tsbuildinfo \
+            -czf release.tar.gz \
+            .
+
+      - name: Copy release bundle to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.ELASTIC_IP }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "release.tar.gz"
+          target: "/opt/snakeladder"
+
+      - name: Write deployment environment file on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ELASTIC_IP }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            mkdir -p /opt/snakeladder
+            cat <<EOF >/opt/snakeladder/.env
+            FRONTEND_API_BASE_URL=http://${{ secrets.ELASTIC_IP }}:9090
+            BACKEND_HOST_PORT=9090
+            FRONTEND_HOST_PORT=3000
+            EOF
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ELASTIC_IP }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            chmod +x /opt/snakeladder/deploy-ec2.sh
+            /opt/snakeladder/deploy-ec2.sh
