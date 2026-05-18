@@ -62,7 +62,7 @@ jobs:
           host: ${{ secrets.ELASTIC_IP }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: ".deploy-temp/release.tar.gz"
+          source: ".deploy-temp/release.tar.gz,deploy/deploy-ec2.sh"
           target: "/home/ec2-user/snakeladder"
           strip_components: 1
 
