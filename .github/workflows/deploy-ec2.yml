@@ -45,14 +45,15 @@ jobs:
 
       - name: Create release archive
         run: |
-          mkdir -p /tmp/snakeladder-release
+          mkdir -p .deploy-temp
           tar \
             --exclude=.git \
+            --exclude=.deploy-temp \
             --exclude=release.tar.gz \
             --exclude=SL_Frontend/node_modules \
             --exclude=SL_Frontend/.next \
             --exclude=SL_Frontend/tsconfig.tsbuildinfo \
-            -czf /tmp/snakeladder-release/release.tar.gz \
+            -czf .deploy-temp/release.tar.gz \
             .
 
       - name: Copy release bundle to EC2
@@ -61,8 +62,9 @@ jobs:
           host: ${{ secrets.ELASTIC_IP }}
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "/tmp/snakeladder-release/release.tar.gz"
-          target: "/opt/snakeladder"
+          source: ".deploy-temp/release.tar.gz"
+          target: "/home/ec2-user/snakeladder"
+          strip_components: 1
 
       - name: Write deployment environment file on EC2
         uses: appleboy/ssh-action@v1.2.0
@@ -71,8 +73,8 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            mkdir -p /opt/snakeladder
-            cat <<EOF >/opt/snakeladder/.env
+            mkdir -p /home/ec2-user/snakeladder
+            cat <<EOF >/home/ec2-user/snakeladder/.env
             FRONTEND_API_BASE_URL=http://${{ secrets.ELASTIC_IP }}:9090
             BACKEND_HOST_PORT=9090
             FRONTEND_HOST_PORT=3000
@@ -85,5 +87,5 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            chmod +x /opt/snakeladder/deploy-ec2.sh
-            /opt/snakeladder/deploy-ec2.sh
+            chmod +x /home/ec2-user/snakeladder/deploy-ec2.sh
+            /home/ec2-user/snakeladder/deploy-ec2.sh
