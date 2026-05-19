@@ -1,10 +1,7 @@
 package router
 
 import (
-	"fmt"
-	"net/http"
 	"snakes-and-ladders-engine/internal/transport/http/handler"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -13,7 +10,6 @@ func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *h
 	router := gin.New()
 	gin.SetMode(gin.ReleaseMode) // Disable debug logs in production
 	router.Use(gin.Recovery())
-	router.Use(requestLogger())
 	router.Use(corsMiddleware())
 	healthHandler := func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -34,38 +30,6 @@ func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *h
 		boardGameGroup.POST("/:gameId/:playerId/roll-dice", boardGameHandler.RollBoardGameDice)
 	}
 	return router
-}
-
-func requestLogger() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		c.Next()
-		if shouldSkipRequestLog(c) {
-			return
-		}
-
-		fmt.Fprintf(
-			gin.DefaultWriter,
-			"[GIN] %s | %3d | %6s | %-15s | %-6s %s\n",
-			time.Now().Format("2006/01/02 - 15:04:05"),
-			c.Writer.Status(),
-			time.Since(start).Round(time.Millisecond),
-			c.ClientIP(),
-			c.Request.Method,
-			c.Request.URL.Path,
-		)
-	}
-}
-
-func shouldSkipRequestLog(c *gin.Context) bool {
-	if c.Request.Method == http.MethodOptions {
-		return true
-	}
-	if c.Request.Method == http.MethodGet && c.Writer.Status() < http.StatusBadRequest {
-		return true
-	}
-
-	return false
 }
 
 func corsMiddleware() gin.HandlerFunc {
