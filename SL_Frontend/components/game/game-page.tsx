@@ -154,6 +154,10 @@ export function GamePage({
           return;
         }
 
+        if (prevPlayer.position === player.position) {
+          return;
+        }
+
         const animationSteps = buildAnimationSteps(prevPlayer, player, boardState);
         if (animationSteps.length > 0) {
           newAnimations.set(player.pid, animationSteps);
