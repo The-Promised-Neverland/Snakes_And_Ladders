@@ -11,6 +11,7 @@ import (
 
 func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *handler.MatchmakingHandler) *gin.Engine {
 	router := gin.New()
+	gin.SetMode(gin.ReleaseMode) // Disable debug logs in production
 	router.Use(gin.Recovery())
 	router.Use(requestLogger())
 	router.Use(corsMiddleware())
