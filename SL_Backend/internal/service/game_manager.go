@@ -31,8 +31,8 @@ type gameSession struct {
 }
 
 const (
-	defaultSnakeCount  = 12
-	defaultLadderCount = 8
+	defaultSnakeCount  = 10
+	defaultLadderCount = 10
 	minBoardCell       = 1
 	maxSnakeCell       = 98
 	winningCell        = 99
@@ -321,7 +321,6 @@ func buildPendingPlayers(players []string) []domain.BoardPlayerState {
 			ConseqSixCount: 0,
 		})
 	}
-
 	return states
 }
 
@@ -346,27 +345,27 @@ func generateRandomSnakesAndLadders(snakeCount int, ladderCount int) ([]domain.P
 	for len(snakes) < snakeCount {
 		from := rand.Intn(maxSnakeCell-minBoardCell) + minBoardCell + 1
 		to := rand.Intn(from-minBoardCell) + minBoardCell
-		if from <= to || usedPositions[from] || usedPositions[to] {
+		rowf := from / 10
+		rowt := to / 10
+		if from <= to || usedPositions[from] || usedPositions[to] || rowf == rowt {
 			continue
 		}
-
 		usedPositions[from] = true
 		usedPositions[to] = true
 		snakes = append(snakes, domain.PositionJump{From: from, To: to})
 	}
-
 	for len(ladders) < ladderCount {
 		from := rand.Intn(maxSnakeCell-minBoardCell+1) + minBoardCell
 		to := rand.Intn(winningCell-from) + from + 1
-		if to <= from || usedPositions[from] || usedPositions[to] {
+		rowf := from / 10
+		rowt := to / 10
+		if to <= from || usedPositions[from] || usedPositions[to] || rowf == rowt {
 			continue
 		}
-
 		usedPositions[from] = true
 		usedPositions[to] = true
 		ladders = append(ladders, domain.PositionJump{From: from, To: to})
 	}
-
 	return snakes, ladders
 }
 
@@ -375,7 +374,6 @@ func toPositionMap(jumps []domain.PositionJump) map[int]int {
 	for _, jump := range jumps {
 		positions[jump.From] = jump.To
 	}
-
 	return positions
 }
 
