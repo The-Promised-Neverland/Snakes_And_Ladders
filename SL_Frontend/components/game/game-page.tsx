@@ -25,6 +25,97 @@ interface GamePageProps {
   onClearFeedback: () => void;
 }
 
+type AnimationMotion = "walk" | "snake" | "ladder";
+
+interface AnimationStep {
+  position: number;
+  durationMs: number;
+  motion: AnimationMotion;
+}
+
+const INITIAL_ANIMATION_DELAY_MS = 80;
+const WALK_STEP_MS = 160;
+const LANDING_PAUSE_MS = 240;
+const JUMP_STEP_MS = 650;
+const PATH_SAMPLE_COUNT = 18;
+
+function buildAnimationSteps(
+  prevPlayer: BoardPlayerState,
+  nextPlayer: BoardPlayerState,
+  boardState: BoardState
+): AnimationStep[] {
+  const startPosition = prevPlayer.position;
+  const finalPosition = nextPlayer.position;
+  const moveDistance = prevPlayer.conseq_six_count * 6 + boardState.dice_value;
+
+  if (moveDistance <= 0) {
+    return [];
+  }
+
+  const landingPosition = startPosition + moveDistance;
+  if (landingPosition > 99) {
+    return [];
+  }
+
+  // A six keeps the turn alive without moving the pawn yet.
+  if (boardState.dice_value === 6 && finalPosition === startPosition) {
+    return [];
+  }
+
+  const steps: AnimationStep[] = [];
+  for (let position = startPosition + 1; position <= landingPosition; position++) {
+    steps.push({
+      position,
+      durationMs: WALK_STEP_MS,
+      motion: "walk",
+    });
+  }
+
+  if (steps.length === 0) {
+    return [];
+  }
+
+  const snakeTarget = boardState.snakes[String(landingPosition)];
+  const ladderTarget = boardState.ladders[String(landingPosition)];
+  const jumpTarget = snakeTarget ?? ladderTarget;
+  const jumpMotion: AnimationMotion | null =
+    snakeTarget !== undefined
+      ? "snake"
+      : ladderTarget !== undefined
+        ? "ladder"
+        : null;
+
+  if (jumpTarget !== undefined && jumpTarget === finalPosition && jumpMotion) {
+    steps[steps.length - 1] = {
+      ...steps[steps.length - 1],
+      durationMs: LANDING_PAUSE_MS,
+    };
+    steps.push({
+      position: finalPosition,
+      durationMs: JUMP_STEP_MS,
+      motion: jumpMotion,
+    });
+    return steps;
+  }
+
+  if (landingPosition !== finalPosition) {
+    const direction = finalPosition > landingPosition ? 1 : -1;
+    for (
+      let position = landingPosition + direction;
+      direction > 0 ? position <= finalPosition : position >= finalPosition;
+      position += direction
+    ) {
+      steps.push({
+        position,
+        durationMs: WALK_STEP_MS,
+        motion: "walk",
+      });
+    }
+  }
+
+  return steps;
+}
+
 export function GamePage({
   boardState,
   playerName,
@@ -39,7 +130,7 @@ export function GamePage({
   onClearFeedback,
 }: GamePageProps) {
   const [isDiceRolling, setIsDiceRolling] = useState(false);
-  const [animatingPlayers, setAnimatingPlayers] = useState<Map<number, number[]>>(new Map());
+  const [animatingPlayers, setAnimatingPlayers] = useState<Map<number, AnimationStep[]>>(new Map());
   const prevBoardStateRef = useRef<BoardState | null>(null);
 
   const fetchState = useCallback(() => api.getBoardGameState(gameId), [gameId]);
@@ -55,31 +146,17 @@ export function GamePage({
   // Generate step-by-step path for animation
   useEffect(() => {
     if (prevBoardStateRef.current) {
-      const newAnimations = new Map<number, number[]>();
+      const newAnimations = new Map<number, AnimationStep[]>();
       
       boardState.players.forEach((player) => {
         const prevPlayer = prevBoardStateRef.current?.players.find(p => p.pid === player.pid);
-        const prevPos = prevPlayer?.position ?? player.position;
-        
-        if (prevPos !== player.position) {
-          // Generate path from prevPos to player.position
-          const path: number[] = [];
-          
-          if (player.position > prevPos) {
-            // Moving forward
-            for (let i = prevPos + 1; i <= player.position; i++) {
-              path.push(i);
-            }
-          } else {
-            // Moving backward (snake)
-            for (let i = prevPos - 1; i >= player.position; i--) {
-              path.push(i);
-            }
-          }
-          
-          if (path.length > 0) {
-            newAnimations.set(player.pid, path);
-          }
+        if (!prevPlayer) {
+          return;
+        }
+
+        const animationSteps = buildAnimationSteps(prevPlayer, player, boardState);
+        if (animationSteps.length > 0) {
+          newAnimations.set(player.pid, animationSteps);
         }
       });
       
@@ -93,10 +170,17 @@ export function GamePage({
   // Clear animations after they complete
   useEffect(() => {
     if (animatingPlayers.size > 0) {
-      const maxSteps = Math.max(...Array.from(animatingPlayers.values()).map(p => p.length));
+      const maxDuration = Math.max(
+        ...Array.from(animatingPlayers.values()).map((steps) =>
+          steps.reduce(
+            (total, step) => total + step.durationMs,
+            INITIAL_ANIMATION_DELAY_MS
+          )
+        )
+      );
       const timeout = setTimeout(() => {
         setAnimatingPlayers(new Map());
-      }, maxSteps * 150 + 300);
+      }, maxDuration + 120);
       return () => clearTimeout(timeout);
     }
   }, [animatingPlayers]);
@@ -347,7 +431,7 @@ interface BoardGridProps {
   players: BoardPlayerState[];
   snakes: { from: number; to: number }[];
   ladders: { from: number; to: number }[];
-  animatingPlayers: Map<number, number[]>;
+  animatingPlayers: Map<number, AnimationStep[]>;
   currentTurnPid: number;
   localPlayerId: number | null;
 }
@@ -359,6 +443,115 @@ function positionToCoords(position: number): { row: number; col: number } {
   const colInRow = position % 10;
   const col = isReversed ? 9 - colInRow : colInRow;
   return { row: 9 - row, col }; // row 0 is at bottom, display row 9 at top
+}
+
+interface BoardPoint {
+  x: number;
+  y: number;
+}
+
+function getCellCenter(position: number, cellSize: number, gap = 2): BoardPoint {
+  const coords = positionToCoords(position);
+  return {
+    x: coords.col * (cellSize + gap) + cellSize / 2,
+    y: coords.row * (cellSize + gap) + cellSize / 2,
+  };
+}
+
+function getSnakePathData(from: number, to: number, cellSize: number, gap = 2) {
+  const start = getCellCenter(from, cellSize, gap);
+  const end = getCellCenter(to, cellSize, gap);
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const perpX = -dy / len * cellSize * 0.4;
+  const perpY = dx / len * cellSize * 0.4;
+
+  const mid = {
+    x: (start.x + end.x) / 2,
+    y: (start.y + end.y) / 2,
+  };
+
+  const cp1 = {
+    x: start.x + dx * 0.25 + perpX,
+    y: start.y + dy * 0.25 + perpY,
+  };
+  const cp2 = {
+    x: start.x + dx * 0.5 - perpX,
+    y: start.y + dy * 0.5 - perpY,
+  };
+  const cp3 = {
+    x: start.x + dx * 0.75 + perpX * 0.5,
+    y: start.y + dy * 0.75 + perpY * 0.5,
+  };
+
+  return { start, end, mid, cp1, cp2, cp3 };
+}
+
+function cubicBezierPoint(
+  t: number,
+  p0: BoardPoint,
+  p1: BoardPoint,
+  p2: BoardPoint,
+  p3: BoardPoint
+): BoardPoint {
+  const oneMinusT = 1 - t;
+  const oneMinusTSquared = oneMinusT * oneMinusT;
+  const tSquared = t * t;
+
+  return {
+    x:
+      oneMinusTSquared * oneMinusT * p0.x +
+      3 * oneMinusTSquared * t * p1.x +
+      3 * oneMinusT * tSquared * p2.x +
+      tSquared * t * p3.x,
+    y:
+      oneMinusTSquared * oneMinusT * p0.y +
+      3 * oneMinusTSquared * t * p1.y +
+      3 * oneMinusT * tSquared * p2.y +
+      tSquared * t * p3.y,
+  };
+}
+
+function buildSnakeMotionFrames(from: number, to: number, cellSize: number): BoardPoint[] {
+  const { start, end, mid, cp1, cp2, cp3 } = getSnakePathData(from, to, cellSize);
+  const secondSegmentControl1 = {
+    x: 2 * mid.x - cp2.x,
+    y: 2 * mid.y - cp2.y,
+  };
+
+  const points: BoardPoint[] = [];
+  for (let i = 0; i <= PATH_SAMPLE_COUNT; i++) {
+    const progress = i / PATH_SAMPLE_COUNT;
+    if (progress <= 0.5) {
+      points.push(
+        cubicBezierPoint(progress * 2, start, cp1, cp2, mid)
+      );
+    } else {
+      points.push(
+        cubicBezierPoint((progress - 0.5) * 2, mid, secondSegmentControl1, cp3, end)
+      );
+    }
+  }
+
+  return points;
+}
+
+function buildLadderMotionFrames(from: number, to: number, cellSize: number): BoardPoint[] {
+  const start = getCellCenter(from, cellSize);
+  const end = getCellCenter(to, cellSize);
+  const points: BoardPoint[] = [];
+
+  for (let i = 0; i <= PATH_SAMPLE_COUNT; i++) {
+    const progress = i / PATH_SAMPLE_COUNT;
+    points.push({
+      x: start.x + (end.x - start.x) * progress,
+      y: start.y + (end.y - start.y) * progress,
+    });
+  }
+
+  return points;
 }
 
 function BoardGrid({
@@ -401,15 +594,6 @@ function BoardGrid({
     }
     return result;
   }, []);
-
-  // Calculate current visual positions for all players (including animation)
-  const playerVisualPositions = useMemo(() => {
-    const positions = new Map<number, number>();
-    players.forEach((player) => {
-      positions.set(player.pid, player.position);
-    });
-    return positions;
-  }, [players]);
 
   return (
     <div className="relative">
@@ -492,7 +676,7 @@ function BoardGrid({
 
 interface AnimatedDwarfTokenProps {
   player: BoardPlayerState;
-  animationPath?: number[];
+  animationPath?: AnimationStep[];
   cellSize: number;
   isCurrentTurn: boolean;
   isLocalPlayer: boolean;
@@ -526,13 +710,22 @@ function AnimatedDwarfToken({
 
   // Step through animation
   useEffect(() => {
-    if (isAnimating && animationPath && currentAnimStep < animationPath.length) {
+    if (isAnimating && animationPath && animationPath.length > 0) {
+      const delayMs =
+        currentAnimStep === 0
+          ? INITIAL_ANIMATION_DELAY_MS
+          : animationPath[currentAnimStep - 1]?.durationMs ?? WALK_STEP_MS;
+
       const timeout = setTimeout(() => {
-        setCurrentAnimStep(prev => prev + 1);
-      }, 150);
+        if (currentAnimStep < animationPath.length) {
+          setCurrentAnimStep((prev) => prev + 1);
+          return;
+        }
+
+        setIsAnimating(false);
+      }, delayMs);
+
       return () => clearTimeout(timeout);
-    } else if (isAnimating && animationPath && currentAnimStep >= animationPath.length) {
-      setIsAnimating(false);
     }
   }, [isAnimating, currentAnimStep, animationPath]);
 
@@ -541,26 +734,54 @@ function AnimatedDwarfToken({
   if (isAnimating && animationPath && animationPath.length > 0) {
     if (currentAnimStep === 0) {
       // Start from position before the path
-      const firstStep = animationPath[0];
-      visualPosition = firstStep > player.position 
-        ? firstStep - 1 
+      const firstStep = animationPath[0].position;
+      visualPosition = firstStep > player.position
+        ? firstStep - 1
         : firstStep + 1;
     } else if (currentAnimStep <= animationPath.length) {
-      visualPosition = animationPath[currentAnimStep - 1];
+      visualPosition = animationPath[currentAnimStep - 1].position;
     }
   }
 
-  const coords = positionToCoords(visualPosition);
+  const activeStep =
+    isAnimating && animationPath && currentAnimStep > 0
+      ? animationPath[currentAnimStep - 1]
+      : null;
+
   const gap = 2; // gap in pixels (matching gap-0.5 md:gap-1)
-  
+
+  if (cellSize === 0) return null;
+
   // Offset for multiple players on same cell
   const offsetX = playersAtSamePosition > 1 ? (indexAtPosition % 2) * 10 - 5 : 0;
   const offsetY = playersAtSamePosition > 1 ? Math.floor(indexAtPosition / 2) * 10 - 5 : 0;
 
-  const x = coords.col * (cellSize + gap) + cellSize / 2 + offsetX;
-  const y = coords.row * (cellSize + gap) + cellSize / 2 + offsetY;
+  const visualCenter = getCellCenter(visualPosition, cellSize, gap);
+  const x = visualCenter.x + offsetX;
+  const y = visualCenter.y + offsetY;
 
-  if (cellSize === 0) return null;
+  const jumpFromPosition =
+    activeStep && animationPath && currentAnimStep > 1
+      ? animationPath[currentAnimStep - 2].position
+      : null;
+
+  const motionFrames =
+    activeStep?.motion === "snake" && jumpFromPosition !== null
+      ? buildSnakeMotionFrames(jumpFromPosition, activeStep.position, cellSize)
+      : activeStep?.motion === "ladder" && jumpFromPosition !== null
+        ? buildLadderMotionFrames(jumpFromPosition, activeStep.position, cellSize)
+        : null;
+
+  const motionAnimate =
+    motionFrames && motionFrames.length > 0
+      ? {
+          x: motionFrames.map((point) => point.x + offsetX - cellSize * 0.3),
+          y: motionFrames.map((point) => point.y + offsetY - cellSize * 0.3),
+        }
+      : {
+          x: x - (cellSize * 0.3),
+          y: y - (cellSize * 0.3),
+        };
 
   return (
     <motion.div
@@ -569,22 +790,32 @@ function AnimatedDwarfToken({
         width: cellSize * 0.6,
         height: cellSize * 0.6,
       }}
-      animate={{
-        x: x - (cellSize * 0.3),
-        y: y - (cellSize * 0.3),
-      }}
-      transition={{
-        type: "spring",
-        stiffness: 300,
-        damping: 25,
-        duration: 0.15,
-      }}
+      animate={motionAnimate}
+      transition={
+        activeStep?.motion === "snake" || activeStep?.motion === "ladder"
+          ? {
+              type: "tween",
+              ease: "easeInOut",
+              duration: activeStep.durationMs / 1000,
+              times: motionFrames
+                ? motionFrames.map((_, index) =>
+                    motionFrames.length === 1 ? 1 : index / (motionFrames.length - 1)
+                  )
+                : undefined,
+            }
+          : {
+              type: "spring",
+              stiffness: 300,
+              damping: 25,
+              duration: (activeStep?.durationMs ?? WALK_STEP_MS) / 1000,
+            }
+      }
     >
       <DwarfToken
         pid={player.pid}
         isCurrentTurn={isCurrentTurn}
         isLocalPlayer={isLocalPlayer}
-        isWalking={isAnimating}
+        isWalking={activeStep?.motion === "walk"}
       />
     </motion.div>
   );
@@ -642,33 +873,8 @@ interface SnakeSVGProps {
 }
 
 function SnakeSVG({ from, to, cellSize }: SnakeSVGProps) {
-  const gap = 2;
-  const fromCoords = positionToCoords(from);
-  const toCoords = positionToCoords(to);
-  
-  const x1 = fromCoords.col * (cellSize + gap) + cellSize / 2;
-  const y1 = fromCoords.row * (cellSize + gap) + cellSize / 2;
-  const x2 = toCoords.col * (cellSize + gap) + cellSize / 2;
-  const y2 = toCoords.row * (cellSize + gap) + cellSize / 2;
-
-  // Create a wavy snake path
-  const midX = (x1 + x2) / 2;
-  const midY = (y1 + y2) / 2;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  const perpX = -dy / len * cellSize * 0.4;
-  const perpY = dx / len * cellSize * 0.4;
-
-  // Control points for S-curve
-  const cp1x = x1 + dx * 0.25 + perpX;
-  const cp1y = y1 + dy * 0.25 + perpY;
-  const cp2x = x1 + dx * 0.5 - perpX;
-  const cp2y = y1 + dy * 0.5 - perpY;
-  const cp3x = x1 + dx * 0.75 + perpX * 0.5;
-  const cp3y = y1 + dy * 0.75 + perpY * 0.5;
-
-  const path = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${midX} ${midY} S ${cp3x} ${cp3y}, ${x2} ${y2}`;
+  const { start, end, mid, cp1, cp2, cp3 } = getSnakePathData(from, to, cellSize);
+  const path = `M ${start.x} ${start.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${mid.x} ${mid.y} S ${cp3.x} ${cp3.y}, ${end.x} ${end.y}`;
 
   return (
     <g>
@@ -693,27 +899,27 @@ function SnakeSVG({ from, to, cellSize }: SnakeSVGProps) {
       />
       {/* Snake head */}
       <circle
-        cx={x1}
-        cy={y1}
+        cx={start.x}
+        cy={start.y}
         r={cellSize * 0.12}
         fill="#059669"
       />
       {/* Snake eyes */}
-      <circle cx={x1 - 2} cy={y1 - 2} r={2} fill="white" />
-      <circle cx={x1 + 2} cy={y1 - 2} r={2} fill="white" />
-      <circle cx={x1 - 2} cy={y1 - 2} r={1} fill="black" />
-      <circle cx={x1 + 2} cy={y1 - 2} r={1} fill="black" />
+      <circle cx={start.x - 2} cy={start.y - 2} r={2} fill="white" />
+      <circle cx={start.x + 2} cy={start.y - 2} r={2} fill="white" />
+      <circle cx={start.x - 2} cy={start.y - 2} r={1} fill="black" />
+      <circle cx={start.x + 2} cy={start.y - 2} r={1} fill="black" />
       {/* Snake tongue */}
       <path
-        d={`M ${x1} ${y1 + 3} l -3 6 M ${x1} ${y1 + 3} l 3 6`}
+        d={`M ${start.x} ${start.y + 3} l -3 6 M ${start.x} ${start.y + 3} l 3 6`}
         stroke="#dc2626"
         strokeWidth={1.5}
         fill="none"
       />
       {/* Snake tail */}
       <circle
-        cx={x2}
-        cy={y2}
+        cx={end.x}
+        cy={end.y}
         r={cellSize * 0.06}
         fill="#059669"
       />
@@ -728,26 +934,20 @@ interface LadderSVGProps {
 }
 
 function LadderSVG({ from, to, cellSize }: LadderSVGProps) {
-  const gap = 2;
-  const fromCoords = positionToCoords(from);
-  const toCoords = positionToCoords(to);
-  
-  const x1 = fromCoords.col * (cellSize + gap) + cellSize / 2;
-  const y1 = fromCoords.row * (cellSize + gap) + cellSize / 2;
-  const x2 = toCoords.col * (cellSize + gap) + cellSize / 2;
-  const y2 = toCoords.row * (cellSize + gap) + cellSize / 2;
+  const start = getCellCenter(from, cellSize);
+  const end = getCellCenter(to, cellSize);
 
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   const perpX = -dy / len * cellSize * 0.2;
   const perpY = dx / len * cellSize * 0.2;
 
   // Ladder rails
-  const rail1Start = { x: x1 + perpX, y: y1 + perpY };
-  const rail1End = { x: x2 + perpX, y: y2 + perpY };
-  const rail2Start = { x: x1 - perpX, y: y1 - perpY };
-  const rail2End = { x: x2 - perpX, y: y2 - perpY };
+  const rail1Start = { x: start.x + perpX, y: start.y + perpY };
+  const rail1End = { x: end.x + perpX, y: end.y + perpY };
+  const rail2Start = { x: start.x - perpX, y: start.y - perpY };
+  const rail2End = { x: end.x - perpX, y: end.y - perpY };
 
   // Ladder rungs
   const numRungs = Math.max(3, Math.floor(len / (cellSize * 0.5)));
