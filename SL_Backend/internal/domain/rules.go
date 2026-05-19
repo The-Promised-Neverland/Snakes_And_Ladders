@@ -2,6 +2,6 @@ package domain
 
 const (
 	MinPlayersToStart          = 2
-	MaxPlayersPerGame          = 100
+	MaxPlayersPerGame          = 10
 	DefaultRoomRequiredPlayers = 2
 )

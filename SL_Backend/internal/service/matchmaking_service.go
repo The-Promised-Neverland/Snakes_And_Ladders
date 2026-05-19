@@ -17,18 +17,33 @@ func NewMatchmakingService(matchmakingEngine contracts.MatchmakingEngine) *Match
 	}
 }
 
-func (s *MatchmakingService) StartMatchmaking(playerName string) (*domain.MatchmakingResult, error) {
-	target, err := s.matchmakingEngine.FindBestJoinableGame()
+func (s *MatchmakingService) StartMatchmaking(playerName string, roomSize int) (*domain.MatchmakingResult, error) {
+	target, err := s.matchmakingEngine.FindBestJoinableGame(roomSize)
 	if err != nil {
 		if err != domain.ErrNoJoinableGames {
 			return nil, err
 		}
-		target, err = s.matchmakingEngine.CreateQueuedGame()
+		target, err = s.matchmakingEngine.CreateQueuedGame(resolveRequestedRoomSize(roomSize))
 		if err != nil {
 			return nil, err
 		}
 	}
-	return s.joinGame(playerName, target.RoomID)
+	result, err := s.joinGame(playerName, target.RoomID)
+	if err == nil {
+		return result, nil
+	}
+	if isJoinTargetUnavailable(err) {
+		if roomSize == 0 { 
+			target, createErr := s.matchmakingEngine.CreateQueuedGame(resolveRequestedRoomSize(roomSize))
+			if createErr != nil {
+				return nil, createErr
+			}
+			return s.joinGame(playerName, target.RoomID)
+		} else {
+			return nil, domain.ErrNoJoinableGames
+		}
+	}
+	return nil, err
 }
 
 func (s *MatchmakingService) JoinRoom(playerName string, roomID string) (*domain.MatchmakingResult, error) {
@@ -57,4 +72,24 @@ func (s *MatchmakingService) joinGame(playerName string, gameID string) (*domain
 		result.GameID = room.RoomID
 	}
 	return result, nil
+}
+
+func resolveRequestedRoomSize(roomSize int) int {
+	if roomSize == 0 {
+		return domain.DefaultRoomRequiredPlayers
+	}
+	return roomSize
+}
+
+func isJoinTargetUnavailable(err error) bool {
+	switch err.Error() {
+	case "game not found":
+		return true
+	case "game is not accepting players":
+		return true
+	case "room is full":
+		return true
+	default:
+		return false
+	}
 }

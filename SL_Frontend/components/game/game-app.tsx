@@ -170,17 +170,21 @@ export function GameApp() {
     clearSession();
   };
 
-  const handleStartMatchmaking = async (playerName: string) => {
+  const handleStartMatchmaking = async (
+    playerName: string,
+    preferredRoomSize: number | null
+  ) => {
     setIsLoading(true);
     setFeedbackMessage(null);
     setFeedbackTone("default");
 
     try {
-      const result = await api.startMatchmaking(playerName);
+      const result = await api.startMatchmaking(playerName, preferredRoomSize);
 
       resetLiveState();
       setSession({
         playerName,
+        preferredRoomSize,
         roomId: result.room.room_id,
         gameId: result.game_id || result.room.room_id,
         playerId: result.player_id,
@@ -213,6 +217,7 @@ export function GameApp() {
 
       resetLiveState();
       setSession({
+        preferredRoomSize: session.preferredRoomSize,
         roomId: result.room.room_id,
         gameId: result.game_id || result.room.room_id,
         playerId: result.player_id,
@@ -274,7 +279,11 @@ export function GameApp() {
           >
             <HomePage
               playerName={session.playerName}
+              preferredRoomSize={session.preferredRoomSize}
               onPlayerNameChange={(name) => setSession({ playerName: name })}
+              onPreferredRoomSizeChange={(roomSize) =>
+                setSession({ preferredRoomSize: roomSize })
+              }
               onStartMatchmaking={handleStartMatchmaking}
               onShowRooms={() => setScreen("rooms")}
               isLoading={isLoading}

@@ -1,16 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Dices, Users, Sparkles, X } from "lucide-react";
 
 interface HomePageProps {
   playerName: string;
+  preferredRoomSize: number | null;
   onPlayerNameChange: (name: string) => void;
-  onStartMatchmaking: (playerName: string) => void;
+  onPreferredRoomSizeChange: (roomSize: number | null) => void;
+  onStartMatchmaking: (playerName: string, roomSize: number | null) => void;
   onShowRooms: () => void;
   isLoading: boolean;
   error: string | null;
@@ -19,7 +28,9 @@ interface HomePageProps {
 
 export function HomePage({
   playerName,
+  preferredRoomSize,
   onPlayerNameChange,
+  onPreferredRoomSizeChange,
   onStartMatchmaking,
   onShowRooms,
   isLoading,
@@ -27,21 +38,39 @@ export function HomePage({
   onClearError,
 }: HomePageProps) {
   const [localName, setLocalName] = useState(playerName);
+  const [localRoomSize, setLocalRoomSize] = useState<number | null>(preferredRoomSize);
   const isNameValid = localName.trim().length > 0;
+
+  useEffect(() => {
+    setLocalName(playerName);
+  }, [playerName]);
+
+  useEffect(() => {
+    setLocalRoomSize(preferredRoomSize);
+  }, [preferredRoomSize]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isNameValid && !isLoading) {
-      onPlayerNameChange(localName.trim());
-      onStartMatchmaking(localName.trim());
+      const trimmedName = localName.trim();
+      onPlayerNameChange(trimmedName);
+      onPreferredRoomSizeChange(localRoomSize);
+      onStartMatchmaking(trimmedName, localRoomSize);
     }
   };
 
   const handleShowRooms = () => {
     if (isNameValid) {
       onPlayerNameChange(localName.trim());
+      onPreferredRoomSizeChange(localRoomSize);
       onShowRooms();
     }
+  };
+
+  const handleRoomSizeChange = (value: string) => {
+    const nextRoomSize = value === "any" ? null : Number(value);
+    setLocalRoomSize(nextRoomSize);
+    onPreferredRoomSizeChange(nextRoomSize);
   };
 
   return (
@@ -110,6 +139,31 @@ export function HomePage({
                 />
               </div>
 
+              <div className="space-y-2">
+                <label htmlFor="roomSize" className="text-sm font-medium text-foreground">
+                  Preferred Room Size
+                </label>
+                <Select
+                  value={localRoomSize === null ? "any" : String(localRoomSize)}
+                  onValueChange={handleRoomSizeChange}
+                >
+                  <SelectTrigger
+                    id="roomSize"
+                    className="h-12 w-full bg-input/50 border-2 focus:border-primary text-base"
+                  >
+                    <SelectValue placeholder="Any size for fastest match" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Any size for fastest match</SelectItem>
+                    {Array.from({ length: 9 }, (_, index) => index + 2).map((roomSize) => (
+                      <SelectItem key={roomSize} value={String(roomSize)}>
+                        {roomSize} players
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-3 pt-2">
                 <Button
                   type="submit"
@@ -147,7 +201,7 @@ export function HomePage({
         {/* Footer info */}
         <div className="text-center mt-6 text-sm text-muted-foreground">
           <p>Roll the dice, climb ladders, avoid snakes!</p>
-          <p className="mt-1">Play with 2-4 players in real-time</p>
+          <p className="mt-1">Play with 2-10 players in real-time</p>
         </div>
       </div>
     </div>

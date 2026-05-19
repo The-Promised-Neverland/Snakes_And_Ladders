@@ -116,15 +116,19 @@ func (gm *GameManager) DeleteGame(gameID string) error {
 	return nil
 }
 
-func (gm *GameManager) CreateQueuedGame() (*domain.RoomState, error) {
+func (gm *GameManager) CreateQueuedGame(roomSize int) (*domain.RoomState, error) {
+	requiredPlayers, err := resolveRoomSize(roomSize)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	gameID := uuid.New().String()
 	game := &gameSession{
 		ID:              gameID,
 		Name:            "Room " + gameID[:8],
 		Status:          domain.GameStatusQueued,
-		Players:         make([]string, 0, domain.DefaultRoomRequiredPlayers),
-		RequiredPlayers: domain.DefaultRoomRequiredPlayers,
+		Players:         make([]string, 0, requiredPlayers),
+		RequiredPlayers: requiredPlayers,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -150,12 +154,16 @@ func (gm *GameManager) FindJoinableGame(gameID string) (*domain.RoomState, error
 	return &room, nil
 }
 
-func (gm *GameManager) FindBestJoinableGame() (*domain.RoomState, error) {
+func (gm *GameManager) FindBestJoinableGame(roomSize int) (*domain.RoomState, error) {
+	minRequiredPlayers := roomSize
 	gm.mu.RLock()
 	defer gm.mu.RUnlock()
 	var best *gameSession
 	for _, game := range gm.games {
 		if game.Status != domain.GameStatusQueued || len(game.Players) >= game.RequiredPlayers {
+			continue
+		}
+		if minRequiredPlayers > 0 && game.RequiredPlayers < minRequiredPlayers {
 			continue
 		}
 		if best == nil || len(game.Players) > len(best.Players) || (len(game.Players) == len(best.Players) && game.CreatedAt.Before(best.CreatedAt)) {
@@ -392,6 +400,20 @@ func clonePositionMap(input map[int]int) map[int]int {
 		output[from] = to
 	}
 	return output
+}
+
+func resolveRoomSize(roomSize int) (int, error) {
+	if roomSize == 0 {
+		return domain.DefaultRoomRequiredPlayers, nil
+	}
+	if roomSize < domain.MinPlayersToStart || roomSize > domain.MaxPlayersPerGame {
+		return 0, fmt.Errorf(
+			"room_size must be between %d and %d",
+			domain.MinPlayersToStart,
+			domain.MaxPlayersPerGame,
+		)
+	}
+	return roomSize, nil
 }
 
 func (gm *GameManager) publishBoardState(gameID string, state *domain.BoardState, message string) {

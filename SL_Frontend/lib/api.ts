@@ -30,11 +30,17 @@ async function fetchApi<T>(
 }
 
 export async function startMatchmaking(
-  playerName: string
+  playerName: string,
+  roomSize?: number | null
 ): Promise<MatchmakingResult> {
+  const body: Record<string, unknown> = { player_name: playerName };
+  if (roomSize != null) {
+    body.room_size = roomSize;
+  }
+
   return fetchApi<MatchmakingResult>("/api/matchmaking/start-matchmaking", {
     method: "POST",
-    body: JSON.stringify({ player_name: playerName }),
+    body: JSON.stringify(body),
   });
 }
 

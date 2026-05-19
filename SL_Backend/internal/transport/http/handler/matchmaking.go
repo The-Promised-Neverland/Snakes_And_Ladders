@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	contracts "snakes-and-ladders-engine/internal/contracts"
+	"snakes-and-ladders-engine/internal/domain"
 	"snakes-and-ladders-engine/pkg/httpx"
 
 	"github.com/gin-gonic/gin"
@@ -20,12 +22,25 @@ func NewMatchmakingHandler(matchmakingService contracts.MatchmakingService) *Mat
 func (h *MatchmakingHandler) StartMatchmaking(c *gin.Context) {
 	var req struct {
 		PlayerName string `json:"player_name" binding:"required"`
+		RoomSize   *int   `json:"room_size"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Error(c, http.StatusBadRequest, err)
 		return
 	}
-	result, err := h.matchmakingService.StartMatchmaking(req.PlayerName)
+	roomSize := 0
+	if req.RoomSize != nil {
+		if *req.RoomSize < domain.MinPlayersToStart || *req.RoomSize > domain.MaxPlayersPerGame {
+			httpx.Error(c, http.StatusBadRequest, fmt.Errorf(
+				"room_size must be between %d and %d",
+				domain.MinPlayersToStart,
+				domain.MaxPlayersPerGame,
+			))
+			return
+		}
+		roomSize = *req.RoomSize
+	}
+	result, err := h.matchmakingService.StartMatchmaking(req.PlayerName, roomSize)
 	if err != nil {
 		httpx.Error(c, http.StatusBadRequest, err)
 		return

@@ -77,6 +77,7 @@ export type ClientWebSocketEvent = WebSocketRollDiceEvent;
 
 export interface SessionState {
   playerName: string;
+  preferredRoomSize: number | null;
   roomId: string | null;
   gameId: string | null;
   playerId: number | null;

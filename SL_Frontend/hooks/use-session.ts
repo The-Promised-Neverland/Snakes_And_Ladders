@@ -7,6 +7,7 @@ const STORAGE_KEY = "snakes-ladders-session";
 
 const defaultSession: SessionState = {
   playerName: "",
+  preferredRoomSize: null,
   roomId: null,
   gameId: null,
   playerId: null,
@@ -26,6 +27,7 @@ export function useSession() {
         const restoredSession = {
           ...defaultSession,
           playerName: parsed.playerName || "",
+          preferredRoomSize: parsed.preferredRoomSize ?? null,
         };
         setSessionState(restoredSession);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(restoredSession));
@@ -46,13 +48,14 @@ export function useSession() {
 
   const clearSession = useCallback(() => {
     const playerName = session.playerName;
-    setSessionState({ ...defaultSession, playerName });
+    const preferredRoomSize = session.preferredRoomSize;
+    setSessionState({ ...defaultSession, playerName, preferredRoomSize });
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ ...defaultSession, playerName })
+      JSON.stringify({ ...defaultSession, playerName, preferredRoomSize })
     );
     setScreen("home");
-  }, [session.playerName]);
+  }, [session.playerName, session.preferredRoomSize]);
 
   const derivePlayerId = useCallback(
     (boardState: BoardState): number | null => {
