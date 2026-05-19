@@ -11,7 +11,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:9090"
 function buildRoomWebSocketUrl(roomId: string): string {
   const url = new URL(BASE_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `/ws/board-games/${roomId}`;
+  url.pathname = `/api/ws/board-games/${roomId}`;
   url.search = "";
   url.hash = "";
   return url.toString();

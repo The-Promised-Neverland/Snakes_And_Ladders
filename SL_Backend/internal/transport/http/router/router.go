@@ -24,7 +24,7 @@ func NewRouter(webSocketHandler *handler.WebSocketHandler, matchmakingHandler *h
 		matchmakingGroup.GET("/show-rooms", matchmakingHandler.ShowRooms)
 		matchmakingGroup.POST("/:roomId/join", matchmakingHandler.JoinRoom)
 	}
-	upgradeGroup := router.Group("/ws")
+	upgradeGroup := router.Group("/api/ws")
 	{
 		upgradeGroup.GET("/board-games/:roomId", webSocketHandler.UpgradeToWebSocket)
 	}
