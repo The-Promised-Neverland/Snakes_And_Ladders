@@ -1,6 +1,7 @@
 package app
 
 import (
+	"snakes-and-ladders-engine/internal/manager"
 	"snakes-and-ladders-engine/internal/service"
 	"snakes-and-ladders-engine/internal/transport/http/handler"
 	"snakes-and-ladders-engine/internal/transport/http/router"
@@ -9,9 +10,11 @@ import (
 )
 
 func NewSnakesAndLaddersGameServer() *gin.Engine {
-	gameManager := service.NewGameManager()
+	webSocketService := service.NewWebSocketService()
+	gameManager := manager.NewGameManager(webSocketService)
+	webSocketService.AttachGameManager(gameManager)
 	matchmakingService := service.NewMatchmakingService(gameManager)
-	boardGameHandler := handler.NewBoardGameHandler(gameManager)
 	matchmakingHandler := handler.NewMatchmakingHandler(matchmakingService)
-	return router.NewRouter(boardGameHandler, matchmakingHandler)
+	webSocketHandler := handler.NewWebSocketHandler(webSocketService)
+	return router.NewRouter(webSocketHandler, matchmakingHandler)
 }

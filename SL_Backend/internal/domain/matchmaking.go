@@ -16,6 +16,7 @@ type RoomState struct {
 
 type MatchmakingResult struct {
 	Room        RoomState `json:"room"`
+	PlayerID    int       `json:"player_id"`
 	GameStarted bool      `json:"game_started"`
 	GameID      string    `json:"game_id,omitempty"`
 }

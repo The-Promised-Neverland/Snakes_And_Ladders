@@ -1,4 +1,4 @@
-package service
+package manager
 
 import (
 	"fmt"
@@ -10,6 +10,7 @@ import (
 	contracts "snakes-and-ladders-engine/internal/contracts"
 	"snakes-and-ladders-engine/internal/domain"
 	"snakes-and-ladders-engine/internal/engine"
+	"snakes-and-ladders-engine/internal/service"
 
 	"github.com/google/uuid"
 )
@@ -17,6 +18,7 @@ import (
 type GameManager struct {
 	games map[string]*gameSession
 	mu    sync.RWMutex
+	ws    *service.WebSocketService
 }
 
 type gameSession struct {
@@ -41,9 +43,10 @@ const (
 var _ contracts.GameManager = (*GameManager)(nil)
 var _ contracts.MatchmakingEngine = (*GameManager)(nil)
 
-func NewGameManager() *GameManager {
+func NewGameManager(ws *service.WebSocketService) *GameManager {
 	return &GameManager{
 		games: make(map[string]*gameSession),
+		ws:    ws,
 	}
 }
 
@@ -72,7 +75,6 @@ func (gm *GameManager) RollDiceForPlayer(gameID string, playerID int) (*domain.R
 			State:    gm.buildBoardState(game),
 		}, err
 	}
-
 	gameOver, moveErr := game.Engine.MovePlayer()
 	if gameOver {
 		game.Status = domain.GameStatusCompleted
@@ -83,24 +85,23 @@ func (gm *GameManager) RollDiceForPlayer(gameID string, playerID int) (*domain.R
 		GameOver: gameOver,
 		State:    boardState,
 	}
-
 	if moveErr != nil {
 		if isCompletedTurnOutcome(moveErr) {
 			result.Message = moveErr.Error()
+			gm.publishBoardState(gameID, boardState, result.Message)
 			return result, nil
 		}
-
+		gm.publishBoardState(gameID, boardState, "")
 		return result, moveErr
 	}
-
+	gm.publishBoardState(gameID, boardState, "")
 	if !gameOver {
 		return result, nil
 	}
-
 	if err := gm.DeleteGame(gameID); err != nil {
 		return result, err
 	}
-
+	gm.closeBoardStream(gameID)
 	return result, nil
 }
 
@@ -197,13 +198,21 @@ func (gm *GameManager) AddPlayerToGame(gameID string, playerName string) (*domai
 	game.UpdatedAt = time.Now()
 	gameStarted := len(game.Players) == game.RequiredPlayers
 	roomState := gm.buildRoomState(game)
+	var queuedState *domain.BoardState
+	if !gameStarted {
+		queuedState = gm.buildBoardState(game)
+	}
 	gm.mu.Unlock()
 	if gameStarted {
-		if _, err := gm.startQueuedGame(gameID); err != nil {
+		boardState, err := gm.startQueuedGame(gameID)
+		if err != nil {
 			return nil, false, err
 		}
 		roomState.Status = string(domain.GameStatusInProgress)
 		roomState.AvailableSlots = 0
+		gm.publishBoardState(gameID, boardState, "")
+	} else {
+		gm.publishBoardState(gameID, queuedState, "")
 	}
 	return &roomState, gameStarted, nil
 }
@@ -382,6 +391,19 @@ func clonePositionMap(input map[int]int) map[int]int {
 	for from, to := range input {
 		output[from] = to
 	}
-
 	return output
+}
+
+func (gm *GameManager) publishBoardState(gameID string, state *domain.BoardState, message string) {
+	if gm.ws == nil || state == nil {
+		return
+	}
+	gm.ws.BroadcastBoardState(gameID, state, message)
+}
+
+func (gm *GameManager) closeBoardStream(gameID string) {
+	if gm.ws == nil {
+		return
+	}
+	gm.ws.CloseGame(gameID)
 }

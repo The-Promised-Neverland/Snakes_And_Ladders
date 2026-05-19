@@ -48,14 +48,13 @@ func (s *MatchmakingService) joinGame(playerName string, gameID string) (*domain
 	if err != nil {
 		return nil, err
 	}
-
 	result := &domain.MatchmakingResult{
 		Room:        *room,
+		PlayerID:    room.JoinedPlayers - 1,
 		GameStarted: gameStarted,
 	}
 	if gameStarted {
 		result.GameID = room.RoomID
 	}
-
 	return result, nil
 }

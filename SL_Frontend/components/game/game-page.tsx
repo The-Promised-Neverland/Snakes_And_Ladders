@@ -1,24 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Dices, X, Loader2 } from "lucide-react";
-import { usePolling } from "@/hooks/use-polling";
-import * as api from "@/lib/api";
+import { AlertTriangle, Dices, X, Loader2 } from "lucide-react";
 import type { BoardState, BoardPlayerState } from "@/types/game";
 
 interface GamePageProps {
   boardState: BoardState;
   playerName: string;
   playerId: number | null;
-  gameId: string;
+  isConnected: boolean;
   onRollDice: () => void;
-  onPollUpdate: (state: BoardState) => void;
-  onPollError: (error: unknown) => void;
   isLoading: boolean;
   feedbackMessage: string | null;
   feedbackTone: "default" | "destructive";
@@ -120,10 +116,8 @@ export function GamePage({
   boardState,
   playerName,
   playerId,
-  gameId,
+  isConnected,
   onRollDice,
-  onPollUpdate,
-  onPollError,
   isLoading,
   feedbackMessage,
   feedbackTone,
@@ -132,16 +126,6 @@ export function GamePage({
   const [isDiceRolling, setIsDiceRolling] = useState(false);
   const [animatingPlayers, setAnimatingPlayers] = useState<Map<number, AnimationStep[]>>(new Map());
   const prevBoardStateRef = useRef<BoardState | null>(null);
-
-  const fetchState = useCallback(() => api.getBoardGameState(gameId), [gameId]);
-
-  const { isSyncing } = usePolling<BoardState>({
-    fetcher: fetchState,
-    interval: 1200,
-    enabled: boardState.status === "in_progress" && animatingPlayers.size === 0,
-    onSuccess: onPollUpdate,
-    onError: onPollError,
-  });
 
   // Generate step-by-step path for animation
   useEffect(() => {
@@ -190,7 +174,8 @@ export function GamePage({
   }, [animatingPlayers]);
 
   const isMyTurn = playerId === boardState.current_turn_pid;
-  const canRoll = isMyTurn;
+  const canRoll = isMyTurn && isConnected;
+  const isMoveCancelled = feedbackMessage === "Three sixes in a row. Move cancelled.";
 
   const handleRollDice = () => {
     setIsDiceRolling(true);
@@ -219,9 +204,10 @@ export function GamePage({
             <h1 className="text-xl md:text-2xl font-bold text-foreground">
               {boardState.name}
             </h1>
-            {isSyncing && (
+            {!isConnected && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 <Loader2 className="w-3 h-3 animate-spin" />
+                Reconnecting...
               </span>
             )}
           </div>
@@ -237,7 +223,43 @@ export function GamePage({
           playerName={playerName}
         />
 
-        {feedbackMessage && (
+        {feedbackMessage && isMoveCancelled && (
+          <motion.div
+            className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 shadow-lg"
+            initial={{ opacity: 0, scale: 0.96, y: -8 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              x: [0, -6, 6, -4, 4, 0],
+            }}
+            transition={{
+              duration: 0.55,
+              times: [0, 0.2, 0.4, 0.6, 0.8, 1],
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-full bg-destructive/15 p-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-destructive">Move Cancelled</p>
+                <p className="text-sm text-destructive/90">
+                  Three sixes in a row forfeits the turn and passes play onward.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClearFeedback}
+                className="rounded-md p-1 text-destructive/80 transition-colors hover:bg-destructive/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {feedbackMessage && !isMoveCancelled && (
           <Alert
             variant={feedbackTone === "destructive" ? "destructive" : "default"}
             className="mb-4 relative"
@@ -267,12 +289,11 @@ export function GamePage({
           {/* Side Panel */}
           <div className="space-y-4">
             {/* Action Panel */}
-            <Card className="border-2 border-border/50 bg-card/80">
+            <Card className={`border-2 bg-card/80 ${isMoveCancelled ? "border-destructive/50 shadow-[0_0_0_1px_rgba(220,38,38,0.15)]" : "border-border/50"}`}>
               <CardContent className="p-4 space-y-4">
                 <div className="text-center">
                   <p className="text-sm text-muted-foreground mb-1">Your Player</p>
                   <p className="font-bold text-lg">{playerName}</p>
-                  <p className="text-xs text-muted-foreground">PID: {playerId}</p>
                   <p className="text-xs text-muted-foreground">
                     Current six stack: {boardState.players.find((player) => player.pid === playerId)?.conseq_six_count ?? 0}
                   </p>

@@ -23,7 +23,12 @@ export function useSession() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as SessionState;
-        setSessionState(parsed);
+        const restoredSession = {
+          ...defaultSession,
+          playerName: parsed.playerName || "",
+        };
+        setSessionState(restoredSession);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(restoredSession));
       } catch {
         localStorage.removeItem(STORAGE_KEY);
       }

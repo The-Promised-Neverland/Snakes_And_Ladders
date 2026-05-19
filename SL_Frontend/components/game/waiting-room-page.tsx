@@ -1,60 +1,38 @@
 "use client";
 
-import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Users, Clock, Loader2 } from "lucide-react";
-import { usePolling } from "@/hooks/use-polling";
-import * as api from "@/lib/api";
 import type { BoardState } from "@/types/game";
 
 interface WaitingRoomPageProps {
-  gameId: string;
+  roomId: string;
   playerName: string;
   requiredPlayers: number | null;
-  onGameStart: (state: BoardState) => void;
-  onError: (error: unknown) => void;
+  boardState: BoardState | null;
+  isConnected: boolean;
   onBack: () => void;
 }
 
 export function WaitingRoomPage({
-  gameId,
+  roomId,
   playerName,
   requiredPlayers: requiredPlayersProp,
-  onGameStart,
-  onError,
+  boardState,
+  isConnected,
   onBack,
 }: WaitingRoomPageProps) {
-  const fetchState = useCallback(() => api.getBoardGameState(gameId), [gameId]);
-
-  const handleSuccess = useCallback(
-    (state: BoardState) => {
-      if (state.status === "in_progress") {
-        onGameStart(state);
-      }
-    },
-    [onGameStart]
-  );
-
-  const { data: boardState, isSyncing } = usePolling<BoardState>({
-    fetcher: fetchState,
-    interval: 2000,
-    enabled: true,
-    onSuccess: handleSuccess,
-    onError,
-  });
-
   const players = boardState?.players || [];
   const joinedCount = players.length;
-  // Compute requiredPlayers safely: max of prop, actual players, and 1
   const requiredPlayers = Math.max(requiredPlayersProp ?? 1, joinedCount, 1);
   const waitingCount = Math.max(requiredPlayers - joinedCount, 0);
+  const roomName = boardState?.name || "Joining room...";
+  const roomStatus = boardState?.status || (isConnected ? "queued" : "connecting");
 
   return (
     <div className="min-h-screen p-4 bg-background flex items-center justify-center">
       <div className="w-full max-w-lg">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <Button
             variant="ghost"
@@ -64,15 +42,21 @@ export function WaitingRoomPage({
             <ArrowLeft className="w-4 h-4" />
             Leave Room
           </Button>
-          {isSyncing && (
-            <span className="text-xs text-muted-foreground sync-indicator flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Syncing...
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground sync-indicator flex items-center gap-1">
+            {isConnected ? (
+              <>
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                Connected
+              </>
+            ) : (
+              <>
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Connecting...
+              </>
+            )}
+          </span>
         </div>
 
-        {/* Main Card */}
         <Card className="border-2 border-border/50 bg-card/80 backdrop-blur-sm shadow-xl">
           <CardHeader className="text-center pb-4">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto mb-4">
@@ -84,35 +68,31 @@ export function WaitingRoomPage({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Room Info */}
-            {boardState && (
-              <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-                    Room Name
-                  </p>
-                  <p className="font-medium text-foreground">{boardState.name}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-                    Status
-                  </p>
-                  <Badge variant="secondary" className="bg-accent/20">
-                    {boardState.status}
-                  </Badge>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-                    Room ID
-                  </p>
-                  <p className="font-mono text-sm text-muted-foreground">
-                    {boardState.id}
-                  </p>
-                </div>
+            <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                  Room Name
+                </p>
+                <p className="font-medium text-foreground">{roomName}</p>
               </div>
-            )}
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                  Status
+                </p>
+                <Badge variant="secondary" className="bg-accent/20">
+                  {roomStatus}
+                </Badge>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                  Room ID
+                </p>
+                <p className="font-mono text-sm text-muted-foreground">
+                  {roomId}
+                </p>
+              </div>
+            </div>
 
-            {/* Progress */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-foreground">
@@ -131,7 +111,6 @@ export function WaitingRoomPage({
               </div>
             </div>
 
-            {/* Player Roster */}
             <div className="space-y-3">
               <h3 className="text-sm font-medium text-foreground">
                 Player Roster
@@ -156,7 +135,6 @@ export function WaitingRoomPage({
               </div>
             </div>
 
-            {/* Waiting indicator */}
             <div className="text-center py-4">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
@@ -164,7 +142,9 @@ export function WaitingRoomPage({
                 <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
               </div>
               <p className="text-sm text-muted-foreground mt-3">
-                Waiting for {waitingCount} more {waitingCount === 1 ? "player" : "players"}...
+                {boardState
+                  ? `Waiting for ${waitingCount} more ${waitingCount === 1 ? "player" : "players"}...`
+                  : "Syncing room state..."}
               </p>
             </div>
           </CardContent>

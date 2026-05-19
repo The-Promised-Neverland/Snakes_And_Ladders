@@ -31,7 +31,7 @@ export function RoomsPage({
 
   const { data: rooms, isSyncing, refetch } = usePolling<RoomState[]>({
     fetcher: fetchRooms,
-    interval: 4000,
+    interval: 3000,
     enabled: true,
   });
 

@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *handler.MatchmakingHandler) *gin.Engine {
+func NewRouter(webSocketHandler *handler.WebSocketHandler, matchmakingHandler *handler.MatchmakingHandler) *gin.Engine {
 	router := gin.New()
 	gin.SetMode(gin.ReleaseMode) // Disable debug logs in production
 	router.Use(gin.Recovery())
@@ -24,10 +24,9 @@ func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *h
 		matchmakingGroup.GET("/show-rooms", matchmakingHandler.ShowRooms)
 		matchmakingGroup.POST("/:roomId/join", matchmakingHandler.JoinRoom)
 	}
-	boardGameGroup := router.Group("/api/board-games")
+	upgradeGroup := router.Group("/ws")
 	{
-		boardGameGroup.GET("/:gameId/state", boardGameHandler.GetBoardGameState)
-		boardGameGroup.POST("/:gameId/:playerId/roll-dice", boardGameHandler.RollBoardGameDice)
+		upgradeGroup.GET("/board-games/:roomId", webSocketHandler.UpgradeToWebSocket)
 	}
 	return router
 }

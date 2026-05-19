@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { BoardState } from "@/types/game";
+import type { BoardState, GameStatus } from "@/types/game";
 import { useSession } from "@/hooks/use-session";
+import { useRoomSocket } from "@/hooks/use-room-socket";
 import * as api from "@/lib/api";
 import { HomePage } from "@/components/game/home-page";
 import { RoomsPage } from "@/components/game/rooms-page";
@@ -19,6 +20,39 @@ const pageVariants = {
 
 type FeedbackTone = "default" | "destructive";
 
+const FEEDBACK_AUTO_DISMISS_MS = 5000;
+
+function getFeedbackPresentation(message: string): {
+  message: string;
+  tone: FeedbackTone;
+} {
+  if (message.includes("Three conseq sixes found")) {
+    return {
+      message: "Three sixes in a row. Move cancelled.",
+      tone: "destructive",
+    };
+  }
+
+  if (message.includes("last roll is six")) {
+    return {
+      message: "Rolled a 6. Extra turn awarded.",
+      tone: "default",
+    };
+  }
+
+  if (message.includes("Position overshooting")) {
+    return {
+      message: "Move skipped. That roll would overshoot the finish.",
+      tone: "default",
+    };
+  }
+
+  return {
+    message,
+    tone: "default",
+  };
+}
+
 export function GameApp() {
   const {
     session,
@@ -27,97 +61,144 @@ export function GameApp() {
     screen,
     setScreen,
     isLoaded,
-    derivePlayerId,
   } = useSession();
 
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [boardState, setBoardState] = useState<BoardState | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("default");
   const [isLoading, setIsLoading] = useState(false);
   const [finalBoardState, setFinalBoardState] = useState<BoardState | null>(null);
+  const previousBoardStatusRef = useRef<GameStatus | null>(null);
+  const currentScreenRef = useRef(screen);
+
+  const {
+    lastEvent,
+    isConnected,
+    connectionError,
+    sendEvent,
+  } = useRoomSocket(activeRoomId);
 
   useEffect(() => {
-    if (!isLoaded) return;
-    if (!session.gameId) return;
-    if (screen !== "home") return;
+    currentScreenRef.current = screen;
+  }, [screen]);
 
-    const restoreSession = async () => {
-      try {
-        const state = await api.getBoardGameState(session.gameId!);
-        setBoardState(state);
+  useEffect(() => {
+    if (!feedbackMessage) {
+      return;
+    }
 
-        const playerId = derivePlayerId(state);
-        if (playerId !== null) {
-          setSession({ playerId });
-        }
+    const timeout = setTimeout(() => {
+      setFeedbackMessage(null);
+    }, FEEDBACK_AUTO_DISMISS_MS);
 
-        if (state.status === "in_progress") {
-          setScreen("gameBoard");
-        } else if (state.status === "queued") {
-          if (!session.requiredPlayers) {
-            try {
-              const rooms = await api.showRooms();
-              const matchingRoom = rooms.find(
-                (r) => r.room_id === session.roomId || r.room_id === session.gameId
-              );
-              if (matchingRoom) {
-                setSession({ requiredPlayers: matchingRoom.required_players });
-              }
-            } catch {
-              // Ignore, proceed without requiredPlayers
-            }
-          }
-          setScreen("waitingRoom");
-        } else if (state.status === "completed") {
-          setFinalBoardState(state);
-          setScreen("gameComplete");
-        }
-      } catch {
-        clearSession();
+    return () => clearTimeout(timeout);
+  }, [feedbackMessage]);
+
+  useEffect(() => {
+    if (!lastEvent) {
+      return;
+    }
+
+    setIsLoading(false);
+
+    if (lastEvent.type === "error") {
+      if (lastEvent.state) {
+        setBoardState(lastEvent.state);
       }
-    };
+      setFeedbackMessage(lastEvent.message);
+      setFeedbackTone("destructive");
+      return;
+    }
 
-    restoreSession();
-  }, [
-    isLoaded,
-    session.gameId,
-    session.roomId,
-    session.requiredPlayers,
-    derivePlayerId,
-    setSession,
-    setScreen,
-    clearSession,
-    screen,
-  ]);
+    const previousBoardStatus = previousBoardStatusRef.current;
+    const isFreshMatchFound =
+      lastEvent.state.status === "in_progress" &&
+      (previousBoardStatus === "queued" ||
+        (previousBoardStatus === null &&
+          currentScreenRef.current === "waitingRoom"));
+
+    setBoardState(lastEvent.state);
+    previousBoardStatusRef.current = lastEvent.state.status;
+
+    if (lastEvent.message) {
+      const feedback = getFeedbackPresentation(lastEvent.message);
+      setFeedbackMessage(feedback.message);
+      setFeedbackTone(feedback.tone);
+    }
+
+    if (lastEvent.state.status === "completed") {
+      setFinalBoardState(lastEvent.state);
+      setScreen("gameComplete");
+      return;
+    }
+
+    if (lastEvent.state.status === "in_progress") {
+      if (isFreshMatchFound) {
+        setFeedbackMessage("Starting game");
+        setFeedbackTone("default");
+      }
+      setScreen("gameBoard");
+      return;
+    }
+
+    setScreen("waitingRoom");
+  }, [lastEvent, setScreen]);
+
+  useEffect(() => {
+    if (!connectionError || !activeRoomId) {
+      return;
+    }
+
+    setIsLoading(false);
+    setFeedbackMessage(connectionError);
+    setFeedbackTone("destructive");
+  }, [activeRoomId, connectionError]);
+
+  const resetLiveState = () => {
+    previousBoardStatusRef.current = null;
+    setActiveRoomId(null);
+    setBoardState(null);
+    setFinalBoardState(null);
+    setFeedbackMessage(null);
+    setFeedbackTone("default");
+    setIsLoading(false);
+  };
+
+  const handleLeaveRoom = () => {
+    resetLiveState();
+    clearSession();
+  };
 
   const handleStartMatchmaking = async (playerName: string) => {
     setIsLoading(true);
     setFeedbackMessage(null);
+    setFeedbackTone("default");
 
     try {
       const result = await api.startMatchmaking(playerName);
 
+      resetLiveState();
       setSession({
         playerName,
         roomId: result.room.room_id,
         gameId: result.game_id || result.room.room_id,
+        playerId: result.player_id,
         requiredPlayers: result.room.required_players,
       });
-
-      if (result.game_started && result.game_id) {
-        const state = await api.getBoardGameState(result.game_id);
-        setBoardState(state);
-        const playerId = derivePlayerId(state);
-        setSession({ playerId });
-        setScreen("gameBoard");
-      } else {
-        setScreen("waitingRoom");
+      if (result.game_started) {
+        setFeedbackMessage("Starting game");
+        setFeedbackTone("default");
+      } else if (result.room.joined_players > 1) {
+        setFeedbackMessage("Match found");
+        setFeedbackTone("default");
       }
+      setActiveRoomId(result.room.room_id);
+      setScreen("waitingRoom");
     } catch (err) {
       const errorMsg = (err as { error?: string }).error || "Failed to start matchmaking";
       setFeedbackMessage(errorMsg);
       setFeedbackTone("destructive");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -125,95 +206,51 @@ export function GameApp() {
   const handleJoinRoom = async (roomId: string) => {
     setIsLoading(true);
     setFeedbackMessage(null);
+    setFeedbackTone("default");
 
     try {
       const result = await api.joinRoom(roomId, session.playerName);
 
+      resetLiveState();
       setSession({
         roomId: result.room.room_id,
         gameId: result.game_id || result.room.room_id,
+        playerId: result.player_id,
         requiredPlayers: result.room.required_players,
       });
-
-      if (result.game_started && result.game_id) {
-        const state = await api.getBoardGameState(result.game_id);
-        setBoardState(state);
-        const playerId = derivePlayerId(state);
-        setSession({ playerId });
-        setScreen("gameBoard");
-      } else {
-        setScreen("waitingRoom");
+      if (result.game_started) {
+        setFeedbackMessage("Starting game");
+        setFeedbackTone("default");
+      } else if (result.room.joined_players > 1) {
+        setFeedbackMessage("Match found");
+        setFeedbackTone("default");
       }
+      setActiveRoomId(result.room.room_id);
+      setScreen("waitingRoom");
     } catch (err) {
       const errorMsg = (err as { error?: string }).error || "Failed to join room";
       setFeedbackMessage(errorMsg);
       setFeedbackTone("destructive");
-    } finally {
       setIsLoading(false);
     }
   };
 
-  const handleRollDice = async () => {
-    if (!session.gameId || session.playerId === null) return;
+  const handleRollDice = () => {
+    if (session.playerId === null) {
+      return;
+    }
 
-    setIsLoading(true);
     setFeedbackMessage(null);
+    setFeedbackTone("default");
+    setIsLoading(true);
 
-    try {
-      const result = await api.rollDice(session.gameId, session.playerId);
-      setBoardState(result.state);
-
-      if (result.message) {
-        setFeedbackMessage(result.message);
-        setFeedbackTone("default");
-      }
-
-      if (result.game_over || result.state.status === "completed") {
-        setFinalBoardState(result.state);
-        setScreen("gameComplete");
-      }
-    } catch (err) {
-      if (api.isRollDiceError(err)) {
-        setBoardState(err.state);
-        setFeedbackMessage(err.error);
-        setFeedbackTone("destructive");
-      } else {
-        const errorMsg = (err as { error?: string }).error || "Failed to roll dice";
-        setFeedbackMessage(errorMsg);
-        setFeedbackTone("destructive");
-      }
-    } finally {
+    const didSend = sendEvent({ type: "roll_dice" });
+    if (!didSend) {
       setIsLoading(false);
+      setFeedbackMessage("Room connection is not ready yet.");
+      setFeedbackTone("destructive");
     }
   };
-
-  const handleWaitingRoomPoll = useCallback((state: BoardState) => {
-    setBoardState(state);
-    if (state.status === "in_progress") {
-      const playerId = derivePlayerId(state);
-      setSession({ playerId });
-      setScreen("gameBoard");
-    }
-  }, [derivePlayerId, setSession, setScreen]);
-
-  const handleGamePoll = useCallback((state: BoardState) => {
-    setBoardState(state);
-
-    if (state.status === "completed") {
-      setFinalBoardState(state);
-      setScreen("gameComplete");
-    }
-  }, [setScreen]);
-
-  const handlePollError = useCallback((err: unknown) => {
-    const errorData = err as { error?: string };
-    if (errorData.error === "game not found") {
-      if (screen === "gameComplete" && finalBoardState) {
-        return;
-      }
-      clearSession();
-    }
-  }, [screen, finalBoardState, clearSession]);
 
   if (!isLoaded) {
     return (
@@ -267,7 +304,7 @@ export function GameApp() {
           </motion.div>
         )}
 
-        {screen === "waitingRoom" && (
+        {screen === "waitingRoom" && session.roomId && (
           <motion.div
             key="waitingRoom"
             variants={pageVariants}
@@ -277,14 +314,12 @@ export function GameApp() {
             transition={{ duration: 0.3 }}
           >
             <WaitingRoomPage
-              gameId={session.gameId!}
+              roomId={session.roomId}
               playerName={session.playerName}
               requiredPlayers={session.requiredPlayers}
-              onGameStart={handleWaitingRoomPoll}
-              onError={handlePollError}
-              onBack={() => {
-                clearSession();
-              }}
+              boardState={boardState}
+              isConnected={isConnected}
+              onBack={handleLeaveRoom}
             />
           </motion.div>
         )}
@@ -302,10 +337,8 @@ export function GameApp() {
               boardState={boardState}
               playerName={session.playerName}
               playerId={session.playerId}
-              gameId={session.gameId!}
+              isConnected={isConnected}
               onRollDice={handleRollDice}
-              onPollUpdate={handleGamePoll}
-              onPollError={handlePollError}
               isLoading={isLoading}
               feedbackMessage={feedbackMessage}
               feedbackTone={feedbackTone}
@@ -326,7 +359,7 @@ export function GameApp() {
             <GameCompletePage
               boardState={finalBoardState}
               playerName={session.playerName}
-              onReturnToLobby={clearSession}
+              onReturnToLobby={handleLeaveRoom}
             />
           </motion.div>
         )}

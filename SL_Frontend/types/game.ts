@@ -16,6 +16,7 @@ export interface RoomState {
 
 export interface MatchmakingResult {
   room: RoomState;
+  player_id: number;
   game_started: boolean;
   game_id?: string;
 }
@@ -49,6 +50,30 @@ export interface RollDiceResult {
   message?: string;
   state: BoardState;
 }
+
+export type WebSocketEventType = "board_state" | "roll_dice" | "error";
+
+export interface WebSocketBoardStateEvent {
+  type: "board_state";
+  state: BoardState;
+  message?: string;
+}
+
+export interface WebSocketErrorEvent {
+  type: "error";
+  message: string;
+  state?: BoardState;
+}
+
+export interface WebSocketRollDiceEvent {
+  type: "roll_dice";
+}
+
+export type ServerWebSocketEvent =
+  | WebSocketBoardStateEvent
+  | WebSocketErrorEvent;
+
+export type ClientWebSocketEvent = WebSocketRollDiceEvent;
 
 export interface SessionState {
   playerName: string;
