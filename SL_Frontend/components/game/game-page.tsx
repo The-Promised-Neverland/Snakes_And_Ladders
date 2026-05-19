@@ -737,11 +737,8 @@ function AnimatedDwarfToken({
   let visualPosition = player.position;
   if (isAnimating && animationPath && animationPath.length > 0) {
     if (currentAnimStep === 0) {
-      // Start from position before the path
-      const firstStep = animationPath[0].position;
-      visualPosition = firstStep > player.position
-        ? firstStep - 1
-        : firstStep + 1;
+      // The first step is always the square immediately after the previous position.
+      visualPosition = animationPath[0].position - 1;
     } else if (currentAnimStep <= animationPath.length) {
       visualPosition = animationPath[currentAnimStep - 1].position;
     }
