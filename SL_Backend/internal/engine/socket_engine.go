@@ -48,10 +48,13 @@ func (e *SocketEngine) Upgrade(w http.ResponseWriter, r *http.Request, roomID st
 	return client, nil
 }
 
-func (e *SocketEngine) Listen(roomID string, playerID int, client *SocketClient, dispatchHandler func([]byte)) {
+func (e *SocketEngine) Listen(roomID string, playerID int, client *SocketClient, dispatchHandler func([]byte), disconnectHandler func()) {
 	defer func() {
 		e.unregister(roomID, playerID)
 		_ = client.conn.Close()
+		if disconnectHandler != nil {
+			disconnectHandler()
+		}
 	}()
 	for {
 		_, message, err := client.conn.ReadMessage()
@@ -140,6 +143,33 @@ func (e *SocketEngine) CloseRoom(roomID string) {
 	for _, client := range roomClients {
 		_ = client.conn.Close()
 	}
+}
+
+func (e *SocketEngine) ReindexRoom(roomID string, playerNames []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	roomClients, exists := e.rooms[roomID]
+	if !exists {
+		return
+	}
+
+	reindexedClients := make(map[int]*SocketClient, len(roomClients))
+	for playerID, playerName := range playerNames {
+		for _, client := range roomClients {
+			if client.playerName == playerName {
+				reindexedClients[playerID] = client
+				break
+			}
+		}
+	}
+
+	if len(reindexedClients) == 0 {
+		delete(e.rooms, roomID)
+		return
+	}
+
+	e.rooms[roomID] = reindexedClients
 }
 
 func (e *SocketEngine) register(roomID string, playerID int, client *SocketClient) {

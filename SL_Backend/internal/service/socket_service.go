@@ -70,6 +70,8 @@ func (s *WebSocketService) UpgradeToWebSocket(w http.ResponseWriter, r *http.Req
 	}
 	go s.socketEngine.Listen(roomID, playerID, client, func(message []byte) {
 		s.handleClientEvent(roomID, playerID, message)
+	}, func() {
+		s.handleDisconnect(roomID, playerName)
 	})
 	return nil
 }
@@ -124,6 +126,17 @@ func (s *WebSocketService) BroadcastBoardState(roomID string, state *domain.Boar
 	})
 }
 
+func (s *WebSocketService) SyncRoomPlayers(roomID string, playerNames []string) {
+	s.socketEngine.ReindexRoom(roomID, playerNames)
+}
+
 func (s *WebSocketService) CloseGame(roomID string) {
 	s.socketEngine.CloseRoom(roomID)
+}
+
+func (s *WebSocketService) handleDisconnect(roomID string, playerName string) {
+	if s.gameManager == nil {
+		return
+	}
+	_ = s.gameManager.RemovePlayerFromGame(roomID, playerName)
 }

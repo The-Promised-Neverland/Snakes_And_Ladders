@@ -225,6 +225,64 @@ func (gm *GameManager) AddPlayerToGame(gameID string, playerName string) (*domai
 	return &roomState, gameStarted, nil
 }
 
+func (gm *GameManager) RemovePlayerFromGame(gameID string, playerName string) error {
+	playerName = strings.TrimSpace(playerName)
+	if playerName == "" {
+		return nil
+	}
+
+	var queuedState *domain.BoardState
+	var remainingPlayers []string
+	shouldCloseRoom := false
+
+	gm.mu.Lock()
+	game, exists := gm.games[gameID]
+	if !exists {
+		gm.mu.Unlock()
+		return nil
+	}
+
+	playerIndex := indexOfPlayer(game.Players, playerName)
+	if playerIndex == -1 {
+		gm.mu.Unlock()
+		return nil
+	}
+
+	switch game.Status {
+	case domain.GameStatusQueued:
+		game.Players = removePlayerAt(game.Players, playerIndex)
+		game.UpdatedAt = time.Now()
+		if len(game.Players) == 0 {
+			delete(gm.games, gameID)
+			shouldCloseRoom = true
+			gm.mu.Unlock()
+			if shouldCloseRoom {
+				gm.closeBoardStream(gameID)
+			}
+			return nil
+		}
+		queuedState = gm.buildBoardState(game)
+		remainingPlayers = append([]string(nil), game.Players...)
+		gm.mu.Unlock()
+		if gm.ws != nil {
+			gm.ws.SyncRoomPlayers(gameID, remainingPlayers)
+		}
+		gm.publishBoardState(gameID, queuedState, "")
+		return nil
+	case domain.GameStatusInProgress, domain.GameStatusCompleted:
+		delete(gm.games, gameID)
+		shouldCloseRoom = true
+		gm.mu.Unlock()
+		if shouldCloseRoom {
+			gm.closeBoardStream(gameID)
+		}
+		return nil
+	default:
+		gm.mu.Unlock()
+		return nil
+	}
+}
+
 func (gm *GameManager) ListJoinableGames() ([]domain.RoomState, error) {
 	gm.mu.RLock()
 	defer gm.mu.RUnlock()
@@ -400,6 +458,19 @@ func clonePositionMap(input map[int]int) map[int]int {
 		output[from] = to
 	}
 	return output
+}
+
+func indexOfPlayer(players []string, playerName string) int {
+	for index, existingPlayer := range players {
+		if existingPlayer == playerName {
+			return index
+		}
+	}
+	return -1
+}
+
+func removePlayerAt(players []string, index int) []string {
+	return append(players[:index], players[index+1:]...)
 }
 
 func resolveRoomSize(roomSize int) (int, error) {

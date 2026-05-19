@@ -54,6 +54,10 @@ func (s *MatchmakingService) JoinRoom(playerName string, roomID string) (*domain
 	return s.joinGame(playerName, target.RoomID)
 }
 
+func (s *MatchmakingService) LeaveRoom(playerName string, roomID string) error {
+	return s.matchmakingEngine.RemovePlayerFromGame(roomID, playerName)
+}
+
 func (s *MatchmakingService) ShowAvailableRooms() ([]domain.RoomState, error) {
 	return s.matchmakingEngine.ListJoinableGames()
 }

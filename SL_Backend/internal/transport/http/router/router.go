@@ -23,6 +23,7 @@ func NewRouter(webSocketHandler *handler.WebSocketHandler, matchmakingHandler *h
 		matchmakingGroup.POST("/start-matchmaking", matchmakingHandler.StartMatchmaking)
 		matchmakingGroup.GET("/show-rooms", matchmakingHandler.ShowRooms)
 		matchmakingGroup.POST("/:roomId/join", matchmakingHandler.JoinRoom)
+		matchmakingGroup.POST("/:roomId/leave", matchmakingHandler.LeaveRoom)
 	}
 	upgradeGroup := router.Group("/api/ws")
 	{

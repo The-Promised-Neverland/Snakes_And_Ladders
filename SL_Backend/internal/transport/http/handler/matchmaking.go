@@ -64,6 +64,21 @@ func (h *MatchmakingHandler) JoinRoom(c *gin.Context) {
 	httpx.JSON(c, http.StatusOK, result)
 }
 
+func (h *MatchmakingHandler) LeaveRoom(c *gin.Context) {
+	var req struct {
+		PlayerName string `json:"player_name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpx.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.matchmakingService.LeaveRoom(req.PlayerName, c.Param("roomId")); err != nil {
+		httpx.Error(c, http.StatusBadRequest, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *MatchmakingHandler) ShowRooms(c *gin.Context) {
 	rooms, err := h.matchmakingService.ShowAvailableRooms()
 	if err != nil {

@@ -1,26 +1,24 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <style>
-    @media (prefers-color-scheme: light) {
-      .background { fill: black; }
-      .foreground { fill: white; }
-    }
-    @media (prefers-color-scheme: dark) {
-      .background { fill: white; }
-      .foreground { fill: black; }
-    }
-  </style>
-  <g clip-path="url(#clip0_7960_43945)">
-    <rect class="background" width="180" height="180" rx="37" />
-    <g style="transform: scale(95%); transform-origin: center">
-      <path class="foreground"
-        d="M101.141 53H136.632C151.023 53 162.689 64.6662 162.689 79.0573V112.904H148.112V79.0573C148.112 78.7105 148.098 78.3662 148.072 78.0251L112.581 112.898C112.701 112.902 112.821 112.904 112.941 112.904H148.112V126.672H112.941C98.5504 126.672 86.5638 114.891 86.5638 100.5V66.7434H101.141V100.5C101.141 101.15 101.191 101.792 101.289 102.422L137.56 66.7816C137.255 66.7563 136.945 66.7434 136.632 66.7434H101.141V53Z" />
-      <path class="foreground"
-        d="M65.2926 124.136L14 66.7372H34.6355L64.7495 100.436V66.7372H80.1365V118.47C80.1365 126.278 70.4953 129.958 65.2926 124.136Z" />
-    </g>
-  </g>
-  <defs>
-    <clipPath id="clip0_7960_43945">
-      <rect width="180" height="180" fill="white" />
-    </clipPath>
-  </defs>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="#F5E7CE"/>
+  <rect x="4" y="4" width="56" height="56" rx="16" stroke="#D4A86B" stroke-width="4"/>
+  <path
+    d="M45 16C41.5 13.2 36.9 12 31.5 12C20.3 12 13 17.9 13 26.4C13 35.2 20.1 38.4 27.2 40.3C34.8 42.4 40.5 43.9 40.5 49.2C40.5 53.6 36.3 56.5 29.8 56.5C24.2 56.5 19.6 54.6 16.3 50.8"
+    stroke="#087F5B"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M45 16C41.7 13.7 37.6 12.7 32.6 12.7C22.9 12.7 16.6 17.7 16.6 24.9C16.6 32.2 22.8 34.9 29.3 36.7C36.4 38.6 41.8 40.1 41.8 45.3C41.8 49.5 37.8 52.1 31.8 52.1C27.5 52.1 23.9 50.8 21.1 48.5"
+    stroke="#34D399"
+    stroke-width="3.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.95"
+  />
+  <ellipse cx="47.2" cy="16.6" rx="6.8" ry="5.9" fill="#087F5B"/>
+  <ellipse cx="48.6" cy="15.9" rx="2.2" ry="1.7" fill="#34D399" opacity="0.95"/>
+  <circle cx="49.5" cy="15.2" r="1.1" fill="#F8FAFC"/>
+  <circle cx="49.7" cy="15.2" r="0.45" fill="#111827"/>
+  <path d="M53 18.2L57.5 20.2L53.4 21.2" stroke="#DC2626" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
