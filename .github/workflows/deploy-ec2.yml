@@ -47,7 +47,7 @@ jobs:
           file: ./SL_Frontend/Dockerfile
           push: true
           build-args: |
-            NEXT_PUBLIC_API_BASE_URL=http://${{ secrets.ELASTIC_IP }}:9090
+            NEXT_PUBLIC_API_BASE_URL=https://snakesladders.gobyabhijit.com
           tags: |
             ${{ env.FRONTEND_IMAGE_NAME }}:latest
             ${{ env.FRONTEND_IMAGE_NAME }}:${{ github.sha }}
