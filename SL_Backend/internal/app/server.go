@@ -1,14 +1,14 @@
 package app
 
 import (
-	"ludo-game-engine/internal/service"
-	"ludo-game-engine/internal/transport/http/handler"
-	"ludo-game-engine/internal/transport/http/router"
+	"snakes-and-ladders-engine/internal/service"
+	"snakes-and-ladders-engine/internal/transport/http/handler"
+	"snakes-and-ladders-engine/internal/transport/http/router"
 
 	"github.com/gin-gonic/gin"
 )
 
-func NewLudoGameServer() *gin.Engine {
+func NewSnakesAndLaddersGameServer() *gin.Engine {
 	gameManager := service.NewGameManager()
 	matchmakingService := service.NewMatchmakingService(gameManager)
 	boardGameHandler := handler.NewBoardGameHandler(gameManager)

@@ -2,8 +2,8 @@ package router
 
 import (
 	"fmt"
-	"ludo-game-engine/internal/transport/http/handler"
 	"net/http"
+	"snakes-and-ladders-engine/internal/transport/http/handler"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,12 +14,13 @@ func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *h
 	router.Use(gin.Recovery())
 	router.Use(requestLogger())
 	router.Use(corsMiddleware())
-	router.GET("/api/health", func(c *gin.Context) {
+	healthHandler := func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
-			"message": "Ludo Game Engine is running",
+			"message": "Snakes & Ladders Game Engine is running",
 		})
-	})
+	}
+	router.GET("/api/health", healthHandler)
 	matchmakingGroup := router.Group("/api/matchmaking")
 	{
 		matchmakingGroup.POST("/start-matchmaking", matchmakingHandler.StartMatchmaking)

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	contracts "ludo-game-engine/internal/contracts"
-	"ludo-game-engine/internal/domain"
-	"ludo-game-engine/internal/engine"
+	contracts "snakes-and-ladders-engine/internal/contracts"
+	"snakes-and-ladders-engine/internal/domain"
+	"snakes-and-ladders-engine/internal/engine"
 
 	"github.com/google/uuid"
 )

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	contracts "ludo-game-engine/internal/contracts"
-	"ludo-game-engine/internal/domain"
+	contracts "snakes-and-ladders-engine/internal/contracts"
+	"snakes-and-ladders-engine/internal/domain"
 )
 
 type playerState struct {

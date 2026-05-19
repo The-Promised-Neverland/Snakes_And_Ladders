@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	contracts "ludo-game-engine/internal/contracts"
-	"ludo-game-engine/pkg/httpx"
+	contracts "snakes-and-ladders-engine/internal/contracts"
+	"snakes-and-ladders-engine/pkg/httpx"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,6 +1,6 @@
 package contracts
 
-import "ludo-game-engine/internal/domain"
+import "snakes-and-ladders-engine/internal/domain"
 
 type GameEngine interface {
 	DiceRoll() error

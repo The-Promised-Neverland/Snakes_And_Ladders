@@ -8,7 +8,7 @@ services:
     ports:
       - "${BACKEND_HOST_PORT:-9090}:9090"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/api/health"]
       interval: 30s
       timeout: 5s
       retries: 5

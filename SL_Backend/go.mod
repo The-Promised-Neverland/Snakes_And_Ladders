@@ -1,4 +1,4 @@
-module ludo-game-engine
+module snakes-and-ladders-engine
 
 go 1.21
 
