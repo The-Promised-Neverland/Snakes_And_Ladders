@@ -14,7 +14,7 @@ func NewRouter(boardGameHandler *handler.BoardGameHandler, matchmakingHandler *h
 	router.Use(gin.Recovery())
 	router.Use(requestLogger())
 	router.Use(corsMiddleware())
-	router.GET("/health", func(c *gin.Context) {
+	router.GET("/api/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
 			"message": "Ludo Game Engine is running",
