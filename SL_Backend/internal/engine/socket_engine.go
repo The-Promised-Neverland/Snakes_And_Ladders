@@ -67,6 +67,12 @@ func (e *SocketEngine) DisconnectedClients() <-chan *SocketClient {
 	return e.disconnected
 }
 
+func (e *SocketEngine) ClientCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return len(e.clients)
+}
+
 func (c *SocketClient) PlayerName() string {
 	return c.playerName
 }
@@ -161,20 +167,6 @@ func (e *SocketEngine) BroadcastJSONGlobal(payload any) error {
 		e.enqueue(client, message)
 	}
 	return nil
-}
-
-func (e *SocketEngine) Disconnect(playerName string) {
-	client := e.lookupClient(playerName)
-	if client == nil {
-		return
-	}
-	e.disconnect(client)
-}
-
-func (e *SocketEngine) ClosePlayers(playerNames []string) {
-	for _, client := range e.snapshotClients(playerNames) {
-		e.disconnect(client)
-	}
 }
 
 func (e *SocketEngine) ClearPlayersGame(playerNames []string) {

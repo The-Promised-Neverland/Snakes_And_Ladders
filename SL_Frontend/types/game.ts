@@ -60,6 +60,7 @@ export type WebSocketEventType =
   | "roll_dice"
   | "global_chat"
   | "room_chat"
+  | "online_count"
   | "error";
 
 export interface WebSocketBoardStateEvent {
@@ -97,6 +98,11 @@ export interface WebSocketChatEvent {
   message: string;
 }
 
+export interface WebSocketOnlineCountEvent {
+  type: "online_count";
+  count: number;
+}
+
 export interface WebSocketMatchmakingRequestEvent {
   type: "matchmaking";
   player_name?: string;
@@ -128,7 +134,8 @@ export type ServerWebSocketEvent =
   | WebSocketErrorEvent
   | WebSocketMatchmakingEvent
   | WebSocketShowRoomsEvent
-  | WebSocketChatEvent;
+  | WebSocketChatEvent
+  | WebSocketOnlineCountEvent;
 
 export type ClientWebSocketEvent =
   | WebSocketRollDiceEvent

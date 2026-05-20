@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Users } from "lucide-react";
 import type {
   BoardState,
   ChatMessage,
@@ -90,6 +91,7 @@ export function GameApp() {
   const [finalBoardState, setFinalBoardState] = useState<BoardState | null>(null);
   const [globalChatMessages, setGlobalChatMessages] = useState<ChatMessage[]>([]);
   const [roomChatMessages, setRoomChatMessages] = useState<ChatMessage[]>([]);
+  const [onlineCount, setOnlineCount] = useState(0);
   const previousBoardStatusRef = useRef<GameStatus | null>(null);
   const currentScreenRef = useRef(screen);
 
@@ -140,6 +142,11 @@ export function GameApp() {
       return;
     }
 
+    if (lastEvent.type === "online_count") {
+      setOnlineCount(lastEvent.count);
+      return;
+    }
+
     setIsLoading(false);
 
     if (lastEvent.type === "error") {
@@ -160,8 +167,14 @@ export function GameApp() {
 
     if (lastEvent.type === "matchmaking" || lastEvent.type === "join_room") {
       const result = lastEvent.result;
+      const preservedBoardState =
+        boardState?.id === result.room.room_id ? boardState : null;
 
       resetLiveState(true);
+      if (preservedBoardState) {
+        setBoardState(preservedBoardState);
+        previousBoardStatusRef.current = preservedBoardState.status;
+      }
       setSession({
         playerName: session.playerName,
         preferredRoomSize: session.preferredRoomSize,
@@ -403,6 +416,25 @@ export function GameApp() {
 
   return (
     <div className="min-h-screen bg-background">
+      <motion.div
+        className="pointer-events-none fixed left-4 top-4 z-50"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/12 px-3 py-2 shadow-lg shadow-emerald-950/10 backdrop-blur-md">
+          <div className="flex items-center gap-2 text-emerald-700">
+            <Users className="h-4 w-4" />
+            <div className="leading-none">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-700/80">
+                Live
+              </p>
+              <p className="mt-1 text-2xl font-black tabular-nums text-emerald-600">
+                {onlineCount}
+              </p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
       <AnimatePresence mode="wait">
         {screen === "home" && (
           <motion.div

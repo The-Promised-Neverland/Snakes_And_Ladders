@@ -16,6 +16,7 @@ type WebSocketEvent struct {
 	State      *domain.BoardState        `json:"state,omitempty"`
 	Result     *domain.MatchmakingResult `json:"result,omitempty"`
 	Rooms      *[]domain.RoomState       `json:"rooms,omitempty"`
+	Count      *int                      `json:"count,omitempty"`
 	PlayerName string                    `json:"player_name,omitempty"`
 	RoomID     string                    `json:"room_id,omitempty"`
 	Message    string                    `json:"message,omitempty"`
@@ -33,6 +34,7 @@ const (
 
 	WebSocketEventTypeGlobalChat WebSocketEventType = "global_chat"
 	WebSocketEventTypeRoomChat   WebSocketEventType = "room_chat"
+	WebSocketEventTypeOnlineCount WebSocketEventType = "online_count"
 
 	WebSocketEventTypeError WebSocketEventType = "error"
 )
@@ -74,6 +76,7 @@ func (s *WebSocketService) UpgradeToWebSocket(w http.ResponseWriter, r *http.Req
 		return nil
 	}
 	s.socketEngine.Run(client)
+	s.broadcastOnlineCount()
 	return nil
 }
 
@@ -149,6 +152,7 @@ func (s *WebSocketService) sendEvent(client *engine.SocketClient, event WebSocke
 }
 
 func (s *WebSocketService) handleDisconnect(client *engine.SocketClient) {
+	s.broadcastOnlineCount()
 	if s.gameManager == nil {
 		return
 	}
@@ -157,6 +161,14 @@ func (s *WebSocketService) handleDisconnect(client *engine.SocketClient) {
 		return
 	}
 	_ = s.gameManager.RemovePlayerFromGame(roomID, client.PlayerName())
+}
+
+func (s *WebSocketService) broadcastOnlineCount() {
+	count := s.socketEngine.ClientCount()
+	_ = s.socketEngine.BroadcastJSONGlobal(WebSocketEvent{
+		Type:  WebSocketEventTypeOnlineCount,
+		Count: &count,
+	})
 }
 
 // --------------------------------EVENT HANDLERS--------------------------------------------
