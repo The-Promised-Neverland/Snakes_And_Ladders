@@ -54,7 +54,20 @@ fi
 
 echo "$DOCKERHUB_TOKEN" | $DOCKER_CMD login -u "$DOCKERHUB_USERNAME" --password-stdin
 
+echo "Disk usage before Docker cleanup:"
+df -h || true
+echo "Docker usage before cleanup:"
+$DOCKER_CMD system df || true
+
+$COMPOSE_CMD --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down --remove-orphans || true
+$DOCKER_CMD system prune -af || true
+
+echo "Disk usage after Docker cleanup:"
+df -h || true
+echo "Docker usage after cleanup:"
+$DOCKER_CMD system df || true
+
 $COMPOSE_CMD --env-file "$ENV_FILE" -f "$COMPOSE_FILE" pull
 $COMPOSE_CMD --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans
 
-$DOCKER_CMD image prune -f
+$DOCKER_CMD image prune -f || true
