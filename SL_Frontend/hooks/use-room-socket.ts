@@ -68,7 +68,8 @@ export function useRoomSocket(
       if (socketRef.current !== socket) {
         return;
       }
-      setConnectionError(`Failed to connect to the ${connectionLabel}.`);
+      // Let onclose provide the final reason so duplicate-name rejections
+      // surface their server message instead of a generic browser error.
     };
 
     socket.onclose = (event) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,6 +27,7 @@ interface GamePageProps {
 }
 
 type AnimationMotion = "walk" | "snake" | "ladder";
+type SpecialMoveSound = Extract<AnimationMotion, "snake" | "ladder">;
 
 interface AnimationStep {
   position: number;
@@ -39,6 +40,22 @@ const WALK_STEP_MS = 160;
 const LANDING_PAUSE_MS = 240;
 const JUMP_STEP_MS = 650;
 const PATH_SAMPLE_COUNT = 18;
+const SOUND_EFFECT_VOLUME = 0.92;
+const SNAKE_SOUND_PATHS = Array.from(
+  { length: 6 },
+  (_, index) => `/audio/snakes/effect${index + 1}.mp3`
+);
+const LADDER_SOUND_PATHS = Array.from(
+  { length: 5 },
+  (_, index) => `/audio/ladders/effect${index + 1}.mp3`
+);
+
+function pickRandomItem<T>(items: T[]): T | null {
+  if (items.length === 0) {
+    return null;
+  }
+  return items[Math.floor(Math.random() * items.length)];
+}
 
 function buildAnimationSteps(
   prevPlayer: BoardPlayerState,
@@ -133,16 +150,54 @@ export function GamePage({
   onSendRoomMessage,
 }: GamePageProps) {
   const [isDiceRolling, setIsDiceRolling] = useState(false);
-  const [animatingPlayers, setAnimatingPlayers] = useState<Map<number, AnimationStep[]>>(new Map());
+  const [animatingPlayers, setAnimatingPlayers] = useState<Map<string, AnimationStep[]>>(new Map());
   const prevBoardStateRef = useRef<BoardState | null>(null);
+  const snakeSoundsRef = useRef<HTMLAudioElement[]>([]);
+  const ladderSoundsRef = useRef<HTMLAudioElement[]>([]);
+
+  useEffect(() => {
+    const preloadSounds = (sources: string[]) =>
+      sources.map((source) => {
+        const audio = new Audio(source);
+        audio.preload = "auto";
+        audio.load();
+        return audio;
+      });
+
+    snakeSoundsRef.current = preloadSounds(SNAKE_SOUND_PATHS);
+    ladderSoundsRef.current = preloadSounds(LADDER_SOUND_PATHS);
+
+    return () => {
+      snakeSoundsRef.current = [];
+      ladderSoundsRef.current = [];
+    };
+  }, []);
+
+  const playSpecialMoveEffect = useCallback((motion: SpecialMoveSound) => {
+    const sourcePool =
+      motion === "snake" ? snakeSoundsRef.current : ladderSoundsRef.current;
+    const selectedAudio = pickRandomItem(sourcePool);
+    if (!selectedAudio) {
+      return;
+    }
+
+    const effect = selectedAudio.cloneNode(true) as HTMLAudioElement;
+    effect.volume = SOUND_EFFECT_VOLUME;
+    void effect.play().catch(() => {
+      // Ignore autoplay failures and keep gameplay smooth.
+    });
+  }, []);
 
   // Generate step-by-step path for animation
   useEffect(() => {
     if (prevBoardStateRef.current) {
-      const newAnimations = new Map<number, AnimationStep[]>();
+      const newAnimations = new Map<string, AnimationStep[]>();
+      let pendingSpecialMove: SpecialMoveSound | null = null;
       
       boardState.players.forEach((player) => {
-        const prevPlayer = prevBoardStateRef.current?.players.find(p => p.pid === player.pid);
+        const prevPlayer = prevBoardStateRef.current?.players.find(
+          (candidate) => candidate.player_name === player.player_name
+        );
         if (!prevPlayer) {
           return;
         }
@@ -153,16 +208,28 @@ export function GamePage({
 
         const animationSteps = buildAnimationSteps(prevPlayer, player, boardState);
         if (animationSteps.length > 0) {
-          newAnimations.set(player.pid, animationSteps);
+          newAnimations.set(player.player_name, animationSteps);
+          if (player.player_name === playerName) {
+            const specialStep = animationSteps.find(
+              (step): step is AnimationStep & { motion: SpecialMoveSound } =>
+                step.motion === "snake" || step.motion === "ladder"
+            );
+            if (specialStep) {
+              pendingSpecialMove = specialStep.motion;
+            }
+          }
         }
       });
       
       if (newAnimations.size > 0) {
         setAnimatingPlayers(newAnimations);
       }
+      if (pendingSpecialMove) {
+        playSpecialMoveEffect(pendingSpecialMove);
+      }
     }
     prevBoardStateRef.current = boardState;
-  }, [boardState]);
+  }, [boardState, playSpecialMoveEffect, playerName]);
 
   // Clear animations after they complete
   useEffect(() => {
@@ -353,7 +420,7 @@ export function GamePage({
                 <div className="space-y-2">
                   {boardState.players.map((player) => (
                     <PlayerInfo
-                      key={player.pid}
+                      key={player.player_name}
                       player={player}
                       isCurrentTurn={player.pid === boardState.current_turn_pid}
                       isLocalPlayer={player.player_name === playerName}
@@ -446,15 +513,25 @@ const playerColors = [
   "text-chart-4 bg-chart-4/20",
 ];
 
+function getStableIndex(seed: string, modulo: number): number {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index++) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  return hash % modulo;
+}
+
 function PlayerInfo({ player, isCurrentTurn, isLocalPlayer }: PlayerInfoProps) {
+  const playerColor = playerColors[getStableIndex(player.player_name, playerColors.length)];
+
   return (
     <div
       className={`flex items-center justify-between p-2 rounded-lg ${
-        playerColors[player.pid % playerColors.length]
+        playerColor
       } ${isCurrentTurn ? "ring-2 ring-primary" : ""}`}
     >
       <div className="flex items-center gap-2">
-        <DwarfToken pid={player.pid} size="sm" />
+        <DwarfToken playerName={player.player_name} size="sm" />
         <span className="font-medium">
           {player.player_name}
           {isLocalPlayer && <span className="text-xs ml-1">(You)</span>}
@@ -476,7 +553,7 @@ interface BoardGridProps {
   players: BoardPlayerState[];
   snakes: { from: number; to: number }[];
   ladders: { from: number; to: number }[];
-  animatingPlayers: Map<number, AnimationStep[]>;
+  animatingPlayers: Map<string, AnimationStep[]>;
   currentTurnPid: number;
   localPlayerId: number | null;
 }
@@ -696,17 +773,15 @@ function BoardGrid({
           {/* Player Tokens Layer */}
           <div className="absolute inset-0 pointer-events-none">
             {players.map((player) => {
-              const animPath = animatingPlayers.get(player.pid);
+              const animPath = animatingPlayers.get(player.player_name);
               return (
                 <AnimatedDwarfToken
-                  key={player.pid}
+                  key={player.player_name}
                   player={player}
                   animationPath={animPath}
                   cellSize={cellSize}
                   isCurrentTurn={player.pid === currentTurnPid}
                   isLocalPlayer={player.pid === localPlayerId}
-                  totalPlayers={players.length}
-                  playerIndex={players.findIndex(p => p.pid === player.pid)}
                   playersAtSamePosition={players.filter(p => p.position === player.position).length}
                   indexAtPosition={players.filter(p => p.position === player.position).findIndex(p => p.pid === player.pid)}
                 />
@@ -725,8 +800,6 @@ interface AnimatedDwarfTokenProps {
   cellSize: number;
   isCurrentTurn: boolean;
   isLocalPlayer: boolean;
-  totalPlayers: number;
-  playerIndex: number;
   playersAtSamePosition: number;
   indexAtPosition: number;
 }
@@ -854,7 +927,7 @@ function AnimatedDwarfToken({
       }
     >
       <DwarfToken
-        pid={player.pid}
+        playerName={player.player_name}
         isCurrentTurn={isCurrentTurn}
         isLocalPlayer={isLocalPlayer}
         isWalking={activeStep?.motion === "walk"}
@@ -1063,7 +1136,7 @@ function LadderSVG({ from, to, cellSize }: LadderSVGProps) {
 }
 
 interface DwarfTokenProps {
-  pid: number;
+  playerName: string;
   isCurrentTurn?: boolean;
   isLocalPlayer?: boolean;
   size?: "sm" | "md";
@@ -1077,8 +1150,8 @@ const tokenColors = [
   { bg: "#f59e0b", border: "#d97706" }, // amber
 ];
 
-function DwarfToken({ pid, isCurrentTurn, isLocalPlayer, size = "md", isWalking }: DwarfTokenProps) {
-  const colors = tokenColors[pid % tokenColors.length];
+function DwarfToken({ playerName, isCurrentTurn, isLocalPlayer, size = "md", isWalking }: DwarfTokenProps) {
+  const colors = tokenColors[getStableIndex(playerName, tokenColors.length)];
   const sizeClasses = size === "sm" ? "w-6 h-6" : "w-full h-full";
 
   return (

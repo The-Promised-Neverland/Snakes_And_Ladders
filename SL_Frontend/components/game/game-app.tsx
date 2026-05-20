@@ -25,6 +25,7 @@ const pageVariants = {
 };
 
 type FeedbackTone = "default" | "destructive";
+type PendingConnectAction = "matchmaking" | "rooms" | null;
 
 const FEEDBACK_AUTO_DISMISS_MS = 5000;
 const MAX_CHAT_MESSAGES = 80;
@@ -68,6 +69,14 @@ function getFeedbackPresentation(message: string): {
   };
 }
 
+function isUnavailablePlayerNameError(message: string): boolean {
+  const normalizedMessage = message.toLowerCase();
+  return (
+    normalizedMessage.includes("player name already connected") ||
+    normalizedMessage.includes("choose another one")
+  );
+}
+
 export function GameApp() {
   const {
     session,
@@ -86,6 +95,8 @@ export function GameApp() {
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("default");
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncingRooms, setIsSyncingRooms] = useState(false);
+  const [pendingConnectAction, setPendingConnectAction] =
+    useState<PendingConnectAction>(null);
   const [pendingSocketEvent, setPendingSocketEvent] =
     useState<ClientWebSocketEvent | null>(null);
   const [finalBoardState, setFinalBoardState] = useState<BoardState | null>(null);
@@ -150,6 +161,7 @@ export function GameApp() {
     setIsLoading(false);
 
     if (lastEvent.type === "error") {
+      setPendingConnectAction(null);
       if (lastEvent.state) {
         setBoardState(lastEvent.state);
       }
@@ -162,10 +174,15 @@ export function GameApp() {
     if (lastEvent.type === "show_rooms") {
       setAvailableRooms(lastEvent.rooms);
       setIsSyncingRooms(false);
+      if (pendingConnectAction === "rooms" || currentScreenRef.current === "rooms") {
+        setScreen("rooms");
+      }
+      setPendingConnectAction(null);
       return;
     }
 
     if (lastEvent.type === "matchmaking" || lastEvent.type === "join_room") {
+      setPendingConnectAction(null);
       const result = lastEvent.result;
       const preservedBoardState =
         boardState?.id === result.room.room_id ? boardState : null;
@@ -238,6 +255,7 @@ export function GameApp() {
   }, [
     derivePlayerId,
     lastEvent,
+    pendingConnectAction,
     session.playerId,
     session.playerName,
     session.preferredRoomSize,
@@ -250,11 +268,27 @@ export function GameApp() {
       return;
     }
 
+    const isEntryFailure = pendingConnectAction !== null;
+    const isUnavailableName = isUnavailablePlayerNameError(connectionError);
+
     setIsLoading(false);
     setIsSyncingRooms(false);
-    setFeedbackMessage(connectionError);
+    if (isEntryFailure || isUnavailableName) {
+      setPendingSocketEvent(null);
+      setPendingConnectAction(null);
+      setAvailableRooms([]);
+      setActiveSocketPlayerName(null);
+    }
+    if (pendingConnectAction === "rooms" || isUnavailableName) {
+      setScreen("home");
+    }
+    setFeedbackMessage(
+      isUnavailableName
+        ? "That player name is already taken right now. Choose another one."
+        : connectionError
+    );
     setFeedbackTone("destructive");
-  }, [activeSocketPlayerName, connectionError]);
+  }, [activeSocketPlayerName, connectionError, pendingConnectAction, setScreen]);
 
   useEffect(() => {
     if (!pendingSocketEvent || !isConnected) {
@@ -298,6 +332,7 @@ export function GameApp() {
     setFeedbackTone("default");
     setIsLoading(false);
     setIsSyncingRooms(false);
+    setPendingConnectAction(null);
     setPendingSocketEvent(null);
   };
 
@@ -311,6 +346,7 @@ export function GameApp() {
     preferredRoomSize: number | null
   ) => {
     setIsLoading(true);
+    setPendingConnectAction("matchmaking");
     setFeedbackMessage(null);
     setFeedbackTone("default");
 
@@ -348,6 +384,7 @@ export function GameApp() {
   };
 
   const handleShowRooms = (playerName: string, preferredRoomSize: number | null) => {
+    setPendingConnectAction("rooms");
     setFeedbackMessage(null);
     setFeedbackTone("default");
     setSession({
@@ -362,7 +399,6 @@ export function GameApp() {
     setAvailableRooms([]);
     setIsSyncingRooms(true);
     setPendingSocketEvent({ type: "show_rooms" });
-    setScreen("rooms");
   };
 
   const handleRollDice = () => {
@@ -417,20 +453,29 @@ export function GameApp() {
   return (
     <div className="min-h-screen bg-background">
       <motion.div
-        className="pointer-events-none fixed left-4 top-4 z-50"
+        className="pointer-events-none fixed z-50"
+        style={{
+          left: "max(0.75rem, env(safe-area-inset-left))",
+          top: "max(0.75rem, env(safe-area-inset-top))",
+        }}
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/12 px-3 py-2 shadow-lg shadow-emerald-950/10 backdrop-blur-md">
+        <div className="max-w-[calc(100vw-1.5rem)] rounded-xl border border-emerald-500/30 bg-emerald-500/18 px-2.5 py-2 shadow-lg shadow-emerald-950/10 backdrop-blur-md sm:rounded-2xl sm:px-3 sm:py-2.5">
           <div className="flex items-center gap-2 text-emerald-700">
-            <Users className="h-4 w-4" />
+            <Users className="h-4 w-4 shrink-0 sm:h-4 sm:w-4" />
             <div className="leading-none">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-700/80">
-                Live
+              <p className="hidden text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-700/80 sm:block">
+                Live Players
               </p>
-              <p className="mt-1 text-2xl font-black tabular-nums text-emerald-600">
-                {onlineCount}
-              </p>
+              <div className="flex items-end gap-1 sm:mt-1">
+                <p className="text-xl font-black tabular-nums text-emerald-600 sm:text-2xl">
+                  {onlineCount}
+                </p>
+                <p className="pb-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-emerald-700/75 sm:hidden">
+                  Live
+                </p>
+              </div>
             </div>
           </div>
         </div>

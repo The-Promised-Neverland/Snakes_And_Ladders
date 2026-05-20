@@ -274,9 +274,6 @@ func (gm *GameManager) RemovePlayerFromGame(gameID string, playerName string) er
 	if playerName == "" || gameID == "" {
 		return nil
 	}
-	var queuedState *domain.BoardState
-	shouldCloseRoom := false
-	var roomPlayers []string
 	gm.mu.Lock()
 	game, exists := gm.games[gameID]
 	if !exists {
@@ -294,29 +291,52 @@ func (gm *GameManager) RemovePlayerFromGame(gameID string, playerName string) er
 		game.UpdatedAt = time.Now()
 		if len(game.Players) == 0 {
 			delete(gm.games, gameID)
-			shouldCloseRoom = true
 			gm.mu.Unlock()
-			if shouldCloseRoom {
-				gm.closeBoardStream(nil)
-			}
+			gm.closeBoardStream(nil)
 			return nil
 		}
-		queuedState = gm.buildBoardState(game)
-		roomPlayers = append([]string(nil), game.Players...)
+		queuedState := gm.buildBoardState(game)
+		roomPlayers := append([]string(nil), game.Players...)
 		gm.mu.Unlock()
 		if gm.ws != nil {
 			gm.ws.SyncRoomPlayers(gameID, roomPlayers)
 		}
 		gm.publishBoardState(gameID, queuedState, "")
 		return nil
-	case domain.GameStatusInProgress, domain.GameStatusCompleted:
-		roomPlayers = append([]string(nil), game.Players...)
-		delete(gm.games, gameID)
-		shouldCloseRoom = true
-		gm.mu.Unlock()
-		if shouldCloseRoom {
-			gm.closeBoardStream(roomPlayers)
+	case domain.GameStatusInProgress:
+		snapshot := game.Engine.Snapshot()
+		nextSnapshot, err := removePlayerFromSnapshot(snapshot, playerIndex)
+		if err != nil {
+			gm.mu.Unlock()
+			return err
 		}
+		game.Players = removePlayerAt(game.Players, playerIndex)
+		game.UpdatedAt = time.Now()
+		if len(game.Players) == 1 {
+			game.Status = domain.GameStatusCompleted
+			completedState := buildBoardStateFromSnapshot(game.ID, game.Name, domain.GameStatusCompleted, forceLastStandingWinner(nextSnapshot))
+			roomPlayers := append([]string(nil), game.Players...)
+			delete(gm.games, gameID)
+			gm.mu.Unlock()
+			gm.publishBoardState(gameID, completedState, fmt.Sprintf("%s wins by last standing.", roomPlayers[0]))
+			gm.closeBoardStream(roomPlayers)
+			return nil
+		}
+		game.Engine = engine.NewGameEngineFromSnapshot(nextSnapshot)
+		game.Status = domain.GameStatusInProgress
+		boardState := gm.buildBoardState(game)
+		roomPlayers := append([]string(nil), game.Players...)
+		gm.mu.Unlock()
+		if gm.ws != nil {
+			gm.ws.SyncRoomPlayers(gameID, roomPlayers)
+		}
+		gm.publishBoardState(gameID, boardState, fmt.Sprintf("%s left the game.", playerName))
+		return nil
+	case domain.GameStatusCompleted:
+		roomPlayers := append([]string(nil), game.Players...)
+		delete(gm.games, gameID)
+		gm.mu.Unlock()
+		gm.closeBoardStream(roomPlayers)
 		return nil
 	default:
 		gm.mu.Unlock()
@@ -404,29 +424,7 @@ func (gm *GameManager) buildBoardState(game *gameSession) *domain.BoardState {
 			Ladders:     map[int]int{},
 		}
 	}
-	snapshot := game.Engine.Snapshot()
-	players := make([]domain.BoardPlayerState, 0, len(snapshot.Players))
-	for _, player := range snapshot.Players {
-		players = append(players, domain.BoardPlayerState{
-			PID:            player.PID,
-			PlayerName:     player.PlayerName,
-			Position:       player.Position,
-			ConseqSixCount: player.ConseqSixCount,
-		})
-	}
-	return &domain.BoardState{
-		ID:                game.ID,
-		Name:              game.Name,
-		Status:            game.Status,
-		CurrentTurnPID:    snapshot.CurrentTurnPID,
-		CurrentTurnPlayer: snapshot.CurrentTurnPlayer,
-		DiceValue:         snapshot.DiceValue,
-		DiceRolled:        snapshot.DiceRolled,
-		Leaderboard:       append([]int(nil), snapshot.Leaderboard...),
-		Players:           players,
-		Snakes:            clonePositionMap(snapshot.Snakes),
-		Ladders:           clonePositionMap(snapshot.Ladders),
-	}
+	return buildBoardStateFromSnapshot(game.ID, game.Name, game.Status, game.Engine.Snapshot())
 }
 
 func (gm *GameManager) buildRoomState(game *gameSession) domain.RoomState {
@@ -513,6 +511,128 @@ func clonePositionMap(input map[int]int) map[int]int {
 		output[from] = to
 	}
 	return output
+}
+
+func buildBoardStateFromSnapshot(gameID string, gameName string, status domain.GameStatus, snapshot domain.EngineState) *domain.BoardState {
+	players := make([]domain.BoardPlayerState, 0, len(snapshot.Players))
+	for _, player := range snapshot.Players {
+		players = append(players, domain.BoardPlayerState{
+			PID:            player.PID,
+			PlayerName:     player.PlayerName,
+			Position:       player.Position,
+			ConseqSixCount: player.ConseqSixCount,
+		})
+	}
+	return &domain.BoardState{
+		ID:                gameID,
+		Name:              gameName,
+		Status:            status,
+		CurrentTurnPID:    snapshot.CurrentTurnPID,
+		CurrentTurnPlayer: snapshot.CurrentTurnPlayer,
+		DiceValue:         snapshot.DiceValue,
+		DiceRolled:        snapshot.DiceRolled,
+		Leaderboard:       append([]int(nil), snapshot.Leaderboard...),
+		Players:           players,
+		Snakes:            clonePositionMap(snapshot.Snakes),
+		Ladders:           clonePositionMap(snapshot.Ladders),
+	}
+}
+
+func removePlayerFromSnapshot(snapshot domain.EngineState, removedPID int) (domain.EngineState, error) {
+	if removedPID < 0 || removedPID >= len(snapshot.Players) {
+		return domain.EngineState{}, fmt.Errorf("player %d not found in game", removedPID)
+	}
+
+	survivors := make([]domain.EnginePlayerState, 0, len(snapshot.Players)-1)
+	oldToNew := make(map[int]int, len(snapshot.Players)-1)
+	for _, player := range snapshot.Players {
+		if player.PID == removedPID {
+			continue
+		}
+		nextPID := len(survivors)
+		oldToNew[player.PID] = nextPID
+		survivors = append(survivors, domain.EnginePlayerState{
+			PID:            nextPID,
+			PlayerName:     player.PlayerName,
+			Position:       player.Position,
+			ConseqSixCount: player.ConseqSixCount,
+			IsWinner:       player.IsWinner,
+		})
+	}
+
+	leaderboard := make([]int, 0, len(snapshot.Leaderboard))
+	for _, pid := range snapshot.Leaderboard {
+		nextPID, exists := oldToNew[pid]
+		if !exists {
+			continue
+		}
+		leaderboard = append(leaderboard, nextPID)
+	}
+
+	nextCurrentTurnPID := 0
+	nextDiceValue := snapshot.DiceValue
+	nextDiceRolled := snapshot.DiceRolled
+	if len(survivors) > 0 {
+		if snapshot.CurrentTurnPID == removedPID {
+			nextCurrentTurnPID = nextTurnPIDAfterRemoval(snapshot.Players, removedPID, oldToNew)
+			nextDiceValue = 0
+			nextDiceRolled = false
+		} else {
+			nextCurrentTurnPID = oldToNew[snapshot.CurrentTurnPID]
+		}
+	}
+
+	nextCurrentTurnPlayer := ""
+	if len(survivors) > 0 {
+		nextCurrentTurnPlayer = survivors[nextCurrentTurnPID].PlayerName
+	}
+
+	return domain.EngineState{
+		CurrentTurnPID:    nextCurrentTurnPID,
+		CurrentTurnPlayer: nextCurrentTurnPlayer,
+		DiceValue:         nextDiceValue,
+		DiceRolled:        nextDiceRolled,
+		Leaderboard:       leaderboard,
+		Players:           survivors,
+		Snakes:            clonePositionMap(snapshot.Snakes),
+		Ladders:           clonePositionMap(snapshot.Ladders),
+	}, nil
+}
+
+func nextTurnPIDAfterRemoval(players []domain.EnginePlayerState, removedPID int, oldToNew map[int]int) int {
+	for step := 1; step <= len(players); step++ {
+		oldPID := (removedPID + step) % len(players)
+		nextPID, exists := oldToNew[oldPID]
+		if !exists {
+			continue
+		}
+		if players[oldPID].IsWinner {
+			continue
+		}
+		return nextPID
+	}
+	for oldPID, nextPID := range oldToNew {
+		if players[oldPID].IsWinner {
+			continue
+		}
+		return nextPID
+	}
+	return 0
+}
+
+func forceLastStandingWinner(snapshot domain.EngineState) domain.EngineState {
+	if len(snapshot.Players) != 1 {
+		return snapshot
+	}
+	snapshot.CurrentTurnPID = 0
+	snapshot.CurrentTurnPlayer = snapshot.Players[0].PlayerName
+	snapshot.DiceValue = 0
+	snapshot.DiceRolled = false
+	snapshot.Leaderboard = []int{0}
+	snapshot.Players[0].PID = 0
+	snapshot.Players[0].IsWinner = true
+	snapshot.Players[0].ConseqSixCount = 0
+	return snapshot
 }
 
 func indexOfPlayer(players []string, playerName string) int {

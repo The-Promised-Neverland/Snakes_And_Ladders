@@ -60,6 +60,35 @@ func NewGameEngine(snakes map[int]int, ladders map[int]int, players []string) co
 	}
 }
 
+func NewGameEngineFromSnapshot(snapshot domain.EngineState) contracts.GameEngine {
+	playerMap := make(map[int]*playerState, len(snapshot.Players))
+	for _, player := range snapshot.Players {
+		playerMap[player.PID] = &playerState{
+			PID:            player.PID,
+			Position:       player.Position,
+			ConseqSixCount: player.ConseqSixCount,
+			PlayerName:     player.PlayerName,
+			IsWinner:       player.IsWinner,
+		}
+	}
+
+	currentTurnPID := snapshot.CurrentTurnPID
+	if len(snapshot.Players) == 0 {
+		currentTurnPID = 0
+	}
+
+	return &boardEngine{
+		Position:          make([]int, 100),
+		Players:           playerMap,
+		SnakePosi:         clonePositionMap(snapshot.Snakes),
+		LadderPosi:        clonePositionMap(snapshot.Ladders),
+		CurrentTurnPID:    currentTurnPID,
+		PlayerLeaderboard: append([]int(nil), snapshot.Leaderboard...),
+		CurrDiceValue:     snapshot.DiceValue,
+		DiceRolled:        snapshot.DiceRolled,
+	}
+}
+
 func (b *boardEngine) DiceRoll() error {
 	b.m.Lock()
 	defer b.m.Unlock()
