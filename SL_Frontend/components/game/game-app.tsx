@@ -2,10 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { BoardState, GameStatus } from "@/types/game";
+import type {
+  BoardState,
+  ClientWebSocketEvent,
+  GameStatus,
+  RoomState,
+} from "@/types/game";
 import { useSession } from "@/hooks/use-session";
 import { useRoomSocket } from "@/hooks/use-room-socket";
-import * as api from "@/lib/api";
 import { HomePage } from "@/components/game/home-page";
 import { RoomsPage } from "@/components/game/rooms-page";
 import { WaitingRoomPage } from "@/components/game/waiting-room-page";
@@ -61,13 +65,18 @@ export function GameApp() {
     screen,
     setScreen,
     isLoaded,
+    derivePlayerId,
   } = useSession();
 
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [activeSocketPlayerName, setActiveSocketPlayerName] = useState<string | null>(null);
   const [boardState, setBoardState] = useState<BoardState | null>(null);
+  const [availableRooms, setAvailableRooms] = useState<RoomState[]>([]);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>("default");
   const [isLoading, setIsLoading] = useState(false);
+  const [isSyncingRooms, setIsSyncingRooms] = useState(false);
+  const [pendingSocketEvent, setPendingSocketEvent] =
+    useState<ClientWebSocketEvent | null>(null);
   const [finalBoardState, setFinalBoardState] = useState<BoardState | null>(null);
   const previousBoardStatusRef = useRef<GameStatus | null>(null);
   const currentScreenRef = useRef(screen);
@@ -77,7 +86,7 @@ export function GameApp() {
     isConnected,
     connectionError,
     sendEvent,
-  } = useRoomSocket(activeRoomId);
+  } = useRoomSocket(activeSocketPlayerName, "game");
 
   useEffect(() => {
     currentScreenRef.current = screen;
@@ -106,8 +115,42 @@ export function GameApp() {
       if (lastEvent.state) {
         setBoardState(lastEvent.state);
       }
+      setIsSyncingRooms(false);
       setFeedbackMessage(lastEvent.message);
       setFeedbackTone("destructive");
+      return;
+    }
+
+    if (lastEvent.type === "show_rooms") {
+      setAvailableRooms(lastEvent.rooms);
+      setIsSyncingRooms(false);
+      return;
+    }
+
+    if (lastEvent.type === "matchmaking" || lastEvent.type === "join_room") {
+      const result = lastEvent.result;
+
+      resetLiveState(true);
+      setSession({
+        playerName: session.playerName,
+        preferredRoomSize: session.preferredRoomSize,
+        roomId: result.room.room_id,
+        gameId: result.game_id || result.room.room_id,
+        playerId: result.player_id,
+        requiredPlayers: result.room.required_players,
+      });
+      if (result.game_started) {
+        setFeedbackMessage("Starting game");
+        setFeedbackTone("default");
+      } else if (result.room.joined_players > 1) {
+        setFeedbackMessage("Match found");
+        setFeedbackTone("default");
+      }
+      setScreen("waitingRoom");
+      return;
+    }
+
+    if (lastEvent.type !== "board_state") {
       return;
     }
 
@@ -117,6 +160,11 @@ export function GameApp() {
       (previousBoardStatus === "queued" ||
         (previousBoardStatus === null &&
           currentScreenRef.current === "waitingRoom"));
+
+    const livePlayerId = derivePlayerId(lastEvent.state);
+    if (livePlayerId !== null && livePlayerId !== session.playerId) {
+      setSession({ playerId: livePlayerId });
+    }
 
     setBoardState(lastEvent.state);
     previousBoardStatusRef.current = lastEvent.state.status;
@@ -143,26 +191,69 @@ export function GameApp() {
     }
 
     setScreen("waitingRoom");
-  }, [lastEvent, setScreen]);
+  }, [
+    derivePlayerId,
+    lastEvent,
+    session.playerId,
+    session.playerName,
+    session.preferredRoomSize,
+    setScreen,
+    setSession,
+  ]);
 
   useEffect(() => {
-    if (!connectionError || !activeRoomId) {
+    if (!connectionError || !activeSocketPlayerName) {
       return;
     }
 
     setIsLoading(false);
+    setIsSyncingRooms(false);
     setFeedbackMessage(connectionError);
     setFeedbackTone("destructive");
-  }, [activeRoomId, connectionError]);
+  }, [activeSocketPlayerName, connectionError]);
 
-  const resetLiveState = () => {
+  useEffect(() => {
+    if (!pendingSocketEvent || !isConnected) {
+      return;
+    }
+
+    const didSend = sendEvent(pendingSocketEvent);
+    if (!didSend) {
+      return;
+    }
+
+    setPendingSocketEvent(null);
+  }, [isConnected, pendingSocketEvent, sendEvent]);
+
+  useEffect(() => {
+    if (screen !== "rooms" || !activeSocketPlayerName) {
+      return;
+    }
+
+    const requestRooms = () => {
+      setIsSyncingRooms(true);
+      setPendingSocketEvent({ type: "show_rooms" });
+    };
+
+    requestRooms();
+    const interval = window.setInterval(requestRooms, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [activeSocketPlayerName, screen]);
+
+  const resetLiveState = (preserveSocket = false) => {
     previousBoardStatusRef.current = null;
-    setActiveRoomId(null);
+    if (!preserveSocket) {
+      setActiveSocketPlayerName(null);
+    }
     setBoardState(null);
+    setAvailableRooms([]);
     setFinalBoardState(null);
     setFeedbackMessage(null);
     setFeedbackTone("default");
     setIsLoading(false);
+    setIsSyncingRooms(false);
+    setPendingSocketEvent(null);
   };
 
   const handleLeaveRoom = () => {
@@ -170,7 +261,7 @@ export function GameApp() {
     clearSession();
   };
 
-  const handleStartMatchmaking = async (
+  const handleStartMatchmaking = (
     playerName: string,
     preferredRoomSize: number | null
   ) => {
@@ -178,70 +269,59 @@ export function GameApp() {
     setFeedbackMessage(null);
     setFeedbackTone("default");
 
-    try {
-      const result = await api.startMatchmaking(playerName, preferredRoomSize);
+    setSession({
+      playerName,
+      preferredRoomSize,
+      roomId: null,
+      gameId: null,
+      playerId: null,
+      requiredPlayers: null,
+    });
+    setActiveSocketPlayerName(playerName);
 
-      resetLiveState();
-      setSession({
-        playerName,
-        preferredRoomSize,
-        roomId: result.room.room_id,
-        gameId: result.game_id || result.room.room_id,
-        playerId: result.player_id,
-        requiredPlayers: result.room.required_players,
-      });
-      if (result.game_started) {
-        setFeedbackMessage("Starting game");
-        setFeedbackTone("default");
-      } else if (result.room.joined_players > 1) {
-        setFeedbackMessage("Match found");
-        setFeedbackTone("default");
-      }
-      setActiveRoomId(result.room.room_id);
-      setScreen("waitingRoom");
-    } catch (err) {
-      const errorMsg = (err as { error?: string }).error || "Failed to start matchmaking";
-      setFeedbackMessage(errorMsg);
-      setFeedbackTone("destructive");
-      setIsLoading(false);
-    }
+    const event: ClientWebSocketEvent =
+      preferredRoomSize === null
+        ? { type: "matchmaking" }
+        : { type: "matchmaking", room_size: preferredRoomSize };
+
+    setPendingSocketEvent(event);
   };
 
-  const handleJoinRoom = async (roomId: string) => {
+  const handleJoinRoom = (roomId: string) => {
+    if (!session.playerName) {
+      setFeedbackMessage("Enter a player name before joining a room.");
+      setFeedbackTone("destructive");
+      return;
+    }
+
     setIsLoading(true);
     setFeedbackMessage(null);
     setFeedbackTone("default");
+    setActiveSocketPlayerName(session.playerName);
 
-    try {
-      const result = await api.joinRoom(roomId, session.playerName);
+    setPendingSocketEvent({ type: "join_room", room_id: roomId });
+  };
 
-      resetLiveState();
-      setSession({
-        preferredRoomSize: session.preferredRoomSize,
-        roomId: result.room.room_id,
-        gameId: result.game_id || result.room.room_id,
-        playerId: result.player_id,
-        requiredPlayers: result.room.required_players,
-      });
-      if (result.game_started) {
-        setFeedbackMessage("Starting game");
-        setFeedbackTone("default");
-      } else if (result.room.joined_players > 1) {
-        setFeedbackMessage("Match found");
-        setFeedbackTone("default");
-      }
-      setActiveRoomId(result.room.room_id);
-      setScreen("waitingRoom");
-    } catch (err) {
-      const errorMsg = (err as { error?: string }).error || "Failed to join room";
-      setFeedbackMessage(errorMsg);
-      setFeedbackTone("destructive");
-      setIsLoading(false);
-    }
+  const handleShowRooms = (playerName: string, preferredRoomSize: number | null) => {
+    setFeedbackMessage(null);
+    setFeedbackTone("default");
+    setSession({
+      playerName,
+      preferredRoomSize,
+      roomId: null,
+      gameId: null,
+      playerId: null,
+      requiredPlayers: null,
+    });
+    setActiveSocketPlayerName(playerName);
+    setAvailableRooms([]);
+    setIsSyncingRooms(true);
+    setPendingSocketEvent({ type: "show_rooms" });
+    setScreen("rooms");
   };
 
   const handleRollDice = () => {
-    if (session.playerId === null) {
+    if (session.playerId === null || !session.roomId) {
       return;
     }
 
@@ -252,7 +332,7 @@ export function GameApp() {
     const didSend = sendEvent({ type: "roll_dice" });
     if (!didSend) {
       setIsLoading(false);
-      setFeedbackMessage("Room connection is not ready yet.");
+      setFeedbackMessage("Socket connection is not ready yet.");
       setFeedbackTone("destructive");
     }
   };
@@ -285,7 +365,7 @@ export function GameApp() {
                 setSession({ preferredRoomSize: roomSize })
               }
               onStartMatchmaking={handleStartMatchmaking}
-              onShowRooms={() => setScreen("rooms")}
+              onShowRooms={handleShowRooms}
               isLoading={isLoading}
               error={feedbackTone === "destructive" ? feedbackMessage : null}
               onClearError={() => setFeedbackMessage(null)}
@@ -304,6 +384,12 @@ export function GameApp() {
           >
             <RoomsPage
               playerName={session.playerName}
+              rooms={availableRooms}
+              isSyncing={isSyncingRooms}
+              onRefresh={() => {
+                setIsSyncingRooms(true);
+                setPendingSocketEvent({ type: "show_rooms" });
+              }}
               onJoinRoom={handleJoinRoom}
               onBack={() => setScreen("home")}
               isLoading={isLoading}

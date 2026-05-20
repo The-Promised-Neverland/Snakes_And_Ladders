@@ -24,7 +24,7 @@ type boardEngine struct {
 	SnakePosi         map[int]int
 	LadderPosi        map[int]int
 	CurrentTurnPID    int
-	PlayerLeaderboard []string
+	PlayerLeaderboard []int
 	CurrDiceValue     int
 	DiceRolled        bool
 	m                 sync.Mutex
@@ -54,7 +54,7 @@ func NewGameEngine(snakes map[int]int, ladders map[int]int, players []string) co
 		SnakePosi:         clonePositionMap(snakes),
 		LadderPosi:        clonePositionMap(ladders),
 		CurrentTurnPID:    0,
-		PlayerLeaderboard: make([]string, 0, len(players)),
+		PlayerLeaderboard: make([]int, 0, len(players)),
 		CurrDiceValue:     0,
 		DiceRolled:        false,
 	}
@@ -112,12 +112,12 @@ func (b *boardEngine) MovePlayer() (bool, error) {
 		player.Position = ladderTo
 	}
 	if player.Position == 99 {
-		b.PlayerLeaderboard = append(b.PlayerLeaderboard, player.PlayerName)
+		b.PlayerLeaderboard = append(b.PlayerLeaderboard, player.PID)
 		player.IsWinner = true
 		if b.majorityWonCheck() {
 			for _, queuedPlayer := range b.Players {
 				if !queuedPlayer.IsWinner {
-					b.PlayerLeaderboard = append(b.PlayerLeaderboard, queuedPlayer.PlayerName)
+					b.PlayerLeaderboard = append(b.PlayerLeaderboard, queuedPlayer.PID)
 					queuedPlayer.IsWinner = true
 				}
 			}
@@ -152,6 +152,7 @@ func (b *boardEngine) Snapshot() domain.EngineState {
 		CurrentTurnPlayer: currentTurnPlayer,
 		DiceValue:         b.CurrDiceValue,
 		DiceRolled:        b.DiceRolled,
+		Leaderboard:       append([]int(nil), b.PlayerLeaderboard...),
 		Players:           players,
 		Snakes:            clonePositionMap(b.SnakePosi),
 		Ladders:           clonePositionMap(b.LadderPosi),

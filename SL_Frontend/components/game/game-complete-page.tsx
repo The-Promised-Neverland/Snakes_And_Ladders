@@ -18,10 +18,25 @@ export function GameCompletePage({
   playerName,
   onReturnToLobby,
 }: GameCompletePageProps) {
-  // Sort players by position (highest first)
-  const rankedPlayers = [...boardState.players].sort(
-    (a, b) => b.position - a.position
+  const leaderboardOrder = new Map(
+    (boardState.leaderboard ?? []).map((pid, index) => [pid, index])
   );
+
+  const rankedPlayers = [...boardState.players].sort((a, b) => {
+    const aRank = leaderboardOrder.get(a.pid);
+    const bRank = leaderboardOrder.get(b.pid);
+
+    if (aRank !== undefined && bRank !== undefined) {
+      return aRank - bRank;
+    }
+    if (aRank !== undefined) {
+      return -1;
+    }
+    if (bRank !== undefined) {
+      return 1;
+    }
+    return b.position - a.position;
+  });
 
   const winner = rankedPlayers[0];
   const isLocalWinner = winner?.player_name === playerName;

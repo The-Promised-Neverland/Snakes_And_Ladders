@@ -41,7 +41,6 @@ const (
 )
 
 var _ contracts.GameManager = (*GameManager)(nil)
-var _ contracts.MatchmakingEngine = (*GameManager)(nil)
 
 func NewGameManager(ws *service.WebSocketService) *GameManager {
 	return &GameManager{
@@ -59,20 +58,26 @@ func (gm *GameManager) GetBoardGameState(gameID string) (*domain.BoardState, err
 }
 
 func (gm *GameManager) RollDiceForPlayer(gameID string, playerID int) (*domain.RollDiceResult, error) {
-	game, err := gm.getGame(gameID)
-	if err != nil {
-		return nil, err
+	gm.mu.Lock()
+	game, exists := gm.games[gameID]
+	if !exists {
+		gm.mu.Unlock()
+		return nil, fmt.Errorf("game not found")
 	}
 	if err := gm.validateGameTurn(game, playerID); err != nil {
+		state := gm.buildBoardState(game)
+		gm.mu.Unlock()
 		return &domain.RollDiceResult{
 			GameOver: false,
-			State:    gm.buildBoardState(game),
+			State:    state,
 		}, err
 	}
 	if err := game.Engine.DiceRoll(); err != nil {
+		state := gm.buildBoardState(game)
+		gm.mu.Unlock()
 		return &domain.RollDiceResult{
 			GameOver: false,
-			State:    gm.buildBoardState(game),
+			State:    state,
 		}, err
 	}
 	gameOver, moveErr := game.Engine.MovePlayer()
@@ -81,6 +86,10 @@ func (gm *GameManager) RollDiceForPlayer(gameID string, playerID int) (*domain.R
 	}
 	game.UpdatedAt = time.Now()
 	boardState := gm.buildBoardState(game)
+	if gameOver {
+		delete(gm.games, gameID)
+	}
+	gm.mu.Unlock()
 	result := &domain.RollDiceResult{
 		GameOver: gameOver,
 		State:    boardState,
@@ -98,17 +107,14 @@ func (gm *GameManager) RollDiceForPlayer(gameID string, playerID int) (*domain.R
 	if !gameOver {
 		return result, nil
 	}
-	if err := gm.DeleteGame(gameID); err != nil {
-		return result, err
-	}
-	gm.closeBoardStream(gameID)
+	roomPlayers := extractPlayerNames(boardState)
+	gm.closeBoardStream(roomPlayers)
 	return result, nil
 }
 
 func (gm *GameManager) DeleteGame(gameID string) error {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
-
 	if _, exists := gm.games[gameID]; !exists {
 		return fmt.Errorf("game not found")
 	}
@@ -116,7 +122,7 @@ func (gm *GameManager) DeleteGame(gameID string) error {
 	return nil
 }
 
-func (gm *GameManager) CreateQueuedGame(roomSize int) (*domain.RoomState, error) {
+func (gm *GameManager) createQueuedGame(roomSize int) (*domain.RoomState, error) {
 	requiredPlayers, err := resolveRoomSize(roomSize)
 	if err != nil {
 		return nil, err
@@ -139,7 +145,44 @@ func (gm *GameManager) CreateQueuedGame(roomSize int) (*domain.RoomState, error)
 	return &room, nil
 }
 
-func (gm *GameManager) FindJoinableGame(gameID string) (*domain.RoomState, error) {
+func (gm *GameManager) StartMatchmaking(playerName string, roomSize int) (*domain.MatchmakingResult, error) {
+	target, err := gm.findBestJoinableGame(roomSize)
+	if err != nil {
+		if err != domain.ErrNoJoinableGames {
+			return nil, err
+		}
+		target, err = gm.createQueuedGame(resolveRequestedRoomSize(roomSize))
+		if err != nil {
+			return nil, err
+		}
+	}
+	result, err := gm.joinGame(playerName, target.RoomID)
+	if err == nil {
+		return result, nil
+	}
+	if isJoinTargetUnavailable(err) {
+		if roomSize == 0 {
+			target, createErr := gm.createQueuedGame(resolveRequestedRoomSize(roomSize))
+			if createErr != nil {
+				return nil, createErr
+			}
+			return gm.joinGame(playerName, target.RoomID)
+		}
+		return nil, domain.ErrNoJoinableGames
+	}
+
+	return nil, err
+}
+
+func (gm *GameManager) JoinRoom(playerName string, roomID string) (*domain.MatchmakingResult, error) {
+	target, err := gm.findJoinableGame(roomID)
+	if err != nil {
+		return nil, err
+	}
+	return gm.joinGame(playerName, target.RoomID)
+}
+
+func (gm *GameManager) findJoinableGame(gameID string) (*domain.RoomState, error) {
 	game, err := gm.getGame(gameID)
 	if err != nil {
 		return nil, err
@@ -154,7 +197,7 @@ func (gm *GameManager) FindJoinableGame(gameID string) (*domain.RoomState, error
 	return &room, nil
 }
 
-func (gm *GameManager) FindBestJoinableGame(roomSize int) (*domain.RoomState, error) {
+func (gm *GameManager) findBestJoinableGame(roomSize int) (*domain.RoomState, error) {
 	minRequiredPlayers := roomSize
 	gm.mu.RLock()
 	defer gm.mu.RUnlock()
@@ -177,7 +220,7 @@ func (gm *GameManager) FindBestJoinableGame(roomSize int) (*domain.RoomState, er
 	return &room, nil
 }
 
-func (gm *GameManager) AddPlayerToGame(gameID string, playerName string) (*domain.RoomState, bool, error) {
+func (gm *GameManager) addPlayerToGame(gameID string, playerName string) (*domain.RoomState, bool, error) {
 	playerName = strings.TrimSpace(playerName)
 	if playerName == "" {
 		return nil, false, fmt.Errorf("player_name is required")
@@ -227,27 +270,24 @@ func (gm *GameManager) AddPlayerToGame(gameID string, playerName string) (*domai
 
 func (gm *GameManager) RemovePlayerFromGame(gameID string, playerName string) error {
 	playerName = strings.TrimSpace(playerName)
-	if playerName == "" {
+	gameID = strings.TrimSpace(gameID)
+	if playerName == "" || gameID == "" {
 		return nil
 	}
-
 	var queuedState *domain.BoardState
-	var remainingPlayers []string
 	shouldCloseRoom := false
-
+	var roomPlayers []string
 	gm.mu.Lock()
 	game, exists := gm.games[gameID]
 	if !exists {
 		gm.mu.Unlock()
 		return nil
 	}
-
 	playerIndex := indexOfPlayer(game.Players, playerName)
 	if playerIndex == -1 {
 		gm.mu.Unlock()
 		return nil
 	}
-
 	switch game.Status {
 	case domain.GameStatusQueued:
 		game.Players = removePlayerAt(game.Players, playerIndex)
@@ -257,24 +297,25 @@ func (gm *GameManager) RemovePlayerFromGame(gameID string, playerName string) er
 			shouldCloseRoom = true
 			gm.mu.Unlock()
 			if shouldCloseRoom {
-				gm.closeBoardStream(gameID)
+				gm.closeBoardStream(nil)
 			}
 			return nil
 		}
 		queuedState = gm.buildBoardState(game)
-		remainingPlayers = append([]string(nil), game.Players...)
+		roomPlayers = append([]string(nil), game.Players...)
 		gm.mu.Unlock()
 		if gm.ws != nil {
-			gm.ws.SyncRoomPlayers(gameID, remainingPlayers)
+			gm.ws.SyncRoomPlayers(gameID, roomPlayers)
 		}
 		gm.publishBoardState(gameID, queuedState, "")
 		return nil
 	case domain.GameStatusInProgress, domain.GameStatusCompleted:
+		roomPlayers = append([]string(nil), game.Players...)
 		delete(gm.games, gameID)
 		shouldCloseRoom = true
 		gm.mu.Unlock()
 		if shouldCloseRoom {
-			gm.closeBoardStream(gameID)
+			gm.closeBoardStream(roomPlayers)
 		}
 		return nil
 	default:
@@ -283,7 +324,7 @@ func (gm *GameManager) RemovePlayerFromGame(gameID string, playerName string) er
 	}
 }
 
-func (gm *GameManager) ListJoinableGames() ([]domain.RoomState, error) {
+func (gm *GameManager) listJoinableGames() ([]domain.RoomState, error) {
 	gm.mu.RLock()
 	defer gm.mu.RUnlock()
 	rooms := make([]domain.RoomState, 0)
@@ -294,6 +335,18 @@ func (gm *GameManager) ListJoinableGames() ([]domain.RoomState, error) {
 		rooms = append(rooms, gm.buildRoomState(game))
 	}
 	return rooms, nil
+}
+
+func (gm *GameManager) ShowAvailableRooms() ([]domain.RoomState, error) {
+	return gm.listJoinableGames()
+}
+
+func (gm *GameManager) GetRoomPlayers(gameID string) ([]string, error) {
+	game, err := gm.getGame(gameID)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string(nil), game.Players...), nil
 }
 
 func (gm *GameManager) getGame(gameID string) (*gameSession, error) {
@@ -340,14 +393,15 @@ func (gm *GameManager) validateGameTurn(game *gameSession, playerID int) error {
 func (gm *GameManager) buildBoardState(game *gameSession) *domain.BoardState {
 	if game.Engine == nil {
 		return &domain.BoardState{
-			ID:         game.ID,
-			Name:       game.Name,
-			Status:     game.Status,
-			DiceValue:  0,
-			DiceRolled: false,
-			Players:    buildPendingPlayers(game.Players),
-			Snakes:     map[int]int{},
-			Ladders:    map[int]int{},
+			ID:          game.ID,
+			Name:        game.Name,
+			Status:      game.Status,
+			DiceValue:   0,
+			DiceRolled:  false,
+			Leaderboard: []int{},
+			Players:     buildPendingPlayers(game.Players),
+			Snakes:      map[int]int{},
+			Ladders:     map[int]int{},
 		}
 	}
 	snapshot := game.Engine.Snapshot()
@@ -368,6 +422,7 @@ func (gm *GameManager) buildBoardState(game *gameSession) *domain.BoardState {
 		CurrentTurnPlayer: snapshot.CurrentTurnPlayer,
 		DiceValue:         snapshot.DiceValue,
 		DiceRolled:        snapshot.DiceRolled,
+		Leaderboard:       append([]int(nil), snapshot.Leaderboard...),
 		Players:           players,
 		Snakes:            clonePositionMap(snapshot.Snakes),
 		Ladders:           clonePositionMap(snapshot.Ladders),
@@ -473,6 +528,42 @@ func removePlayerAt(players []string, index int) []string {
 	return append(players[:index], players[index+1:]...)
 }
 
+func (gm *GameManager) joinGame(playerName string, gameID string) (*domain.MatchmakingResult, error) {
+	room, gameStarted, err := gm.addPlayerToGame(gameID, playerName)
+	if err != nil {
+		return nil, err
+	}
+	result := &domain.MatchmakingResult{
+		Room:        *room,
+		PlayerID:    room.JoinedPlayers - 1,
+		GameStarted: gameStarted,
+	}
+	if gameStarted {
+		result.GameID = room.RoomID
+	}
+	return result, nil
+}
+
+func resolveRequestedRoomSize(roomSize int) int {
+	if roomSize == 0 {
+		return domain.DefaultRoomRequiredPlayers
+	}
+	return roomSize
+}
+
+func isJoinTargetUnavailable(err error) bool {
+	switch err.Error() {
+	case "game not found":
+		return true
+	case "game is not accepting players":
+		return true
+	case "room is full":
+		return true
+	default:
+		return false
+	}
+}
+
 func resolveRoomSize(roomSize int) (int, error) {
 	if roomSize == 0 {
 		return domain.DefaultRoomRequiredPlayers, nil
@@ -494,9 +585,24 @@ func (gm *GameManager) publishBoardState(gameID string, state *domain.BoardState
 	gm.ws.BroadcastBoardState(gameID, state, message)
 }
 
-func (gm *GameManager) closeBoardStream(gameID string) {
+func (gm *GameManager) closeBoardStream(playerNames []string) {
 	if gm.ws == nil {
 		return
 	}
-	gm.ws.CloseGame(gameID)
+	gm.ws.CloseGame(playerNames)
+}
+
+func extractPlayerNames(state *domain.BoardState) []string {
+	if state == nil {
+		return nil
+	}
+	playerNames := make([]string, 0, len(state.Players))
+	for _, player := range state.Players {
+		playerName := strings.TrimSpace(player.PlayerName)
+		if playerName == "" {
+			continue
+		}
+		playerNames = append(playerNames, playerName)
+	}
+	return playerNames
 }

@@ -35,6 +35,7 @@ export interface BoardState {
   current_turn_pid: number;
   current_turn_player: string;
   players: BoardPlayerState[];
+  leaderboard: number[];
   snakes: Record<string, number>;
   ladders: Record<string, number>;
   dice_value: number;
@@ -51,7 +52,15 @@ export interface RollDiceResult {
   state: BoardState;
 }
 
-export type WebSocketEventType = "board_state" | "roll_dice" | "error";
+export type WebSocketEventType =
+  | "matchmaking"
+  | "join_room"
+  | "show_rooms"
+  | "board_state"
+  | "roll_dice"
+  | "global_chat"
+  | "room_chat"
+  | "error";
 
 export interface WebSocketBoardStateEvent {
   type: "board_state";
@@ -69,11 +78,45 @@ export interface WebSocketRollDiceEvent {
   type: "roll_dice";
 }
 
+export interface WebSocketMatchmakingEvent {
+  type: "matchmaking" | "join_room";
+  result: MatchmakingResult;
+  message?: string;
+}
+
+export interface WebSocketShowRoomsEvent {
+  type: "show_rooms";
+  rooms: RoomState[];
+  message?: string;
+}
+
+export interface WebSocketMatchmakingRequestEvent {
+  type: "matchmaking";
+  player_name?: string;
+  room_size?: number;
+}
+
+export interface WebSocketJoinRoomRequestEvent {
+  type: "join_room";
+  player_name?: string;
+  room_id: string;
+}
+
+export interface WebSocketShowRoomsRequestEvent {
+  type: "show_rooms";
+}
+
 export type ServerWebSocketEvent =
   | WebSocketBoardStateEvent
-  | WebSocketErrorEvent;
+  | WebSocketErrorEvent
+  | WebSocketMatchmakingEvent
+  | WebSocketShowRoomsEvent;
 
-export type ClientWebSocketEvent = WebSocketRollDiceEvent;
+export type ClientWebSocketEvent =
+  | WebSocketRollDiceEvent
+  | WebSocketMatchmakingRequestEvent
+  | WebSocketJoinRoomRequestEvent
+  | WebSocketShowRoomsRequestEvent;
 
 export interface SessionState {
   playerName: string;

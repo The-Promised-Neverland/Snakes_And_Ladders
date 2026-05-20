@@ -13,6 +13,7 @@ type EngineState struct {
 	CurrentTurnPlayer string
 	DiceValue         int
 	DiceRolled        bool
+	Leaderboard       []int
 	Players           []EnginePlayerState
 	Snakes            map[int]int
 	Ladders           map[int]int

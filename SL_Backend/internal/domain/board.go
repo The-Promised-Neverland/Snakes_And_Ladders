@@ -20,6 +20,7 @@ type BoardState struct {
 	CurrentTurnPlayer string             `json:"current_turn_player"`
 	DiceValue         int                `json:"dice_value"`
 	DiceRolled        bool               `json:"dice_rolled"`
+	Leaderboard       []int              `json:"leaderboard"`
 	Players           []BoardPlayerState `json:"players"`
 	Snakes            map[int]int        `json:"snakes"`
 	Ladders           map[int]int        `json:"ladders"`

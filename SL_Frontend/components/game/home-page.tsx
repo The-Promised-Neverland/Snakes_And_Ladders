@@ -20,7 +20,7 @@ interface HomePageProps {
   onPlayerNameChange: (name: string) => void;
   onPreferredRoomSizeChange: (roomSize: number | null) => void;
   onStartMatchmaking: (playerName: string, roomSize: number | null) => void;
-  onShowRooms: () => void;
+  onShowRooms: (playerName: string, roomSize: number | null) => void;
   isLoading: boolean;
   error: string | null;
   onClearError: () => void;
@@ -61,9 +61,10 @@ export function HomePage({
 
   const handleShowRooms = () => {
     if (isNameValid) {
-      onPlayerNameChange(localName.trim());
+      const trimmedName = localName.trim();
+      onPlayerNameChange(trimmedName);
       onPreferredRoomSizeChange(localRoomSize);
-      onShowRooms();
+      onShowRooms(trimmedName, localRoomSize);
     }
   };
 

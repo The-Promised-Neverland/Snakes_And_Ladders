@@ -8,16 +8,21 @@ import type {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:9090";
 
-function buildRoomWebSocketUrl(roomId: string): string {
+function buildRoomWebSocketUrl(playerName: string | null): string {
   const url = new URL(BASE_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `/api/ws/board-games/${roomId}`;
-  url.search = "";
+  url.pathname = "/api/ws/board-games";
+  if (playerName) {
+    url.searchParams.set("player_name", playerName);
+  }
   url.hash = "";
   return url.toString();
 }
 
-export function useRoomSocket(roomId: string | null) {
+export function useRoomSocket(
+  playerName: string | null,
+  connectionLabel = "room"
+) {
   const socketRef = useRef<WebSocket | null>(null);
   const [lastEvent, setLastEvent] = useState<ServerWebSocketEvent | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -26,13 +31,13 @@ export function useRoomSocket(roomId: string | null) {
   useEffect(() => {
     setLastEvent(null);
 
-    if (!roomId) {
+    if (!playerName) {
       setIsConnected(false);
       setConnectionError(null);
       return;
     }
 
-    const socket = new WebSocket(buildRoomWebSocketUrl(roomId));
+    const socket = new WebSocket(buildRoomWebSocketUrl(playerName));
     let closedByClient = false;
 
     socketRef.current = socket;
@@ -55,7 +60,7 @@ export function useRoomSocket(roomId: string | null) {
       try {
         setLastEvent(JSON.parse(event.data) as ServerWebSocketEvent);
       } catch {
-        setConnectionError("Received an invalid room update.");
+        setConnectionError(`Received an invalid ${connectionLabel} update.`);
       }
     };
 
@@ -63,16 +68,19 @@ export function useRoomSocket(roomId: string | null) {
       if (socketRef.current !== socket) {
         return;
       }
-      setConnectionError("Failed to connect to the room.");
+      setConnectionError(`Failed to connect to the ${connectionLabel}.`);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (socketRef.current === socket) {
         socketRef.current = null;
       }
       setIsConnected(false);
       if (!closedByClient) {
-        setConnectionError("Room connection closed.");
+        setConnectionError(
+          event.reason ||
+            `${connectionLabel.charAt(0).toUpperCase()}${connectionLabel.slice(1)} connection closed.`
+        );
       }
     };
 
@@ -83,7 +91,7 @@ export function useRoomSocket(roomId: string | null) {
       }
       socket.close();
     };
-  }, [roomId]);
+  }, [connectionLabel, playerName]);
 
   const sendEvent = (event: ClientWebSocketEvent): boolean => {
     const socket = socketRef.current;

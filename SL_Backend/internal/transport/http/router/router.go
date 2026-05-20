@@ -6,28 +6,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(webSocketHandler *handler.WebSocketHandler, matchmakingHandler *handler.MatchmakingHandler) *gin.Engine {
+func NewRouter(webSocketHandler *handler.WebSocketHandler) *gin.Engine {
 	router := gin.New()
 	gin.SetMode(gin.ReleaseMode) // Disable debug logs in production
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
-	healthHandler := func(c *gin.Context) {
+	router.GET("/api/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":  "ok",
 			"message": "Snakes & Ladders Game Engine is running",
 		})
-	}
-	router.GET("/api/health", healthHandler)
-	matchmakingGroup := router.Group("/api/matchmaking")
-	{
-		matchmakingGroup.POST("/start-matchmaking", matchmakingHandler.StartMatchmaking)
-		matchmakingGroup.GET("/show-rooms", matchmakingHandler.ShowRooms)
-		matchmakingGroup.POST("/:roomId/join", matchmakingHandler.JoinRoom)
-		matchmakingGroup.POST("/:roomId/leave", matchmakingHandler.LeaveRoom)
-	}
+	})
 	upgradeGroup := router.Group("/api/ws")
 	{
-		upgradeGroup.GET("/board-games/:roomId", webSocketHandler.UpgradeToWebSocket)
+		upgradeGroup.GET("/board-games", webSocketHandler.UpgradeToWebSocket)
 	}
 	return router
 }

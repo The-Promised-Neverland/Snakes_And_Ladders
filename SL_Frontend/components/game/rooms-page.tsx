@@ -1,17 +1,17 @@
 "use client";
 
-import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, RefreshCw, Users, X, DoorOpen } from "lucide-react";
-import { usePolling } from "@/hooks/use-polling";
-import * as api from "@/lib/api";
 import type { RoomState } from "@/types/game";
 
 interface RoomsPageProps {
   playerName: string;
+  rooms: RoomState[];
+  isSyncing: boolean;
+  onRefresh: () => void;
   onJoinRoom: (roomId: string) => void;
   onBack: () => void;
   isLoading: boolean;
@@ -21,20 +21,15 @@ interface RoomsPageProps {
 
 export function RoomsPage({
   playerName,
+  rooms,
+  isSyncing,
+  onRefresh,
   onJoinRoom,
   onBack,
   isLoading,
   error,
   onClearError,
 }: RoomsPageProps) {
-  const fetchRooms = useCallback(() => api.showRooms(), []);
-
-  const { data: rooms, isSyncing, refetch } = usePolling<RoomState[]>({
-    fetcher: fetchRooms,
-    interval: 3000,
-    enabled: true,
-  });
-
   // Sort rooms: highest joined first, then lowest available slots, then by name
   const sortedRooms = [...(rooms || [])].sort((a, b) => {
     if (b.joined_players !== a.joined_players) {
@@ -72,7 +67,7 @@ export function RoomsPage({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => refetch()}
+              onClick={onRefresh}
               disabled={isSyncing}
             >
               <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />

@@ -13,8 +13,6 @@ func NewSnakesAndLaddersGameServer() *gin.Engine {
 	webSocketService := service.NewWebSocketService()
 	gameManager := manager.NewGameManager(webSocketService)
 	webSocketService.AttachGameManager(gameManager)
-	matchmakingService := service.NewMatchmakingService(gameManager)
-	matchmakingHandler := handler.NewMatchmakingHandler(matchmakingService)
 	webSocketHandler := handler.NewWebSocketHandler(webSocketService)
-	return router.NewRouter(webSocketHandler, matchmakingHandler)
+	return router.NewRouter(webSocketHandler)
 }
