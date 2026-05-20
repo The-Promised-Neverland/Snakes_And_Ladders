@@ -107,11 +107,13 @@ export function GameApp() {
   const currentScreenRef = useRef(screen);
 
   const {
-    lastEvent,
+    eventQueue,
+    consumeEvent,
     isConnected,
     connectionError,
     sendEvent,
   } = useRoomSocket(activeSocketPlayerName, "game");
+  const nextEvent = eventQueue[0] ?? null;
 
   useEffect(() => {
     currentScreenRef.current = screen;
@@ -130,21 +132,23 @@ export function GameApp() {
   }, [feedbackMessage]);
 
   useEffect(() => {
-    if (!lastEvent) {
+    if (!nextEvent) {
       return;
     }
+    const event = nextEvent;
+    consumeEvent();
 
-    if (lastEvent.type === "global_chat" || lastEvent.type === "room_chat") {
+    if (event.type === "global_chat" || event.type === "room_chat") {
       const nextMessage: ChatMessage = {
-        id: `${lastEvent.type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: lastEvent.type,
-        playerName: lastEvent.player_name,
-        roomId: lastEvent.room_id,
-        message: lastEvent.message,
+        id: `${event.type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: event.type,
+        playerName: event.player_name,
+        roomId: event.room_id,
+        message: event.message,
         sentAt: Date.now(),
       };
 
-      if (lastEvent.type === "global_chat") {
+      if (event.type === "global_chat") {
         setGlobalChatMessages((messages) => appendChatMessage(messages, nextMessage));
         return;
       }
@@ -153,26 +157,26 @@ export function GameApp() {
       return;
     }
 
-    if (lastEvent.type === "online_count") {
-      setOnlineCount(lastEvent.count);
+    if (event.type === "online_count") {
+      setOnlineCount(event.count);
       return;
     }
 
     setIsLoading(false);
 
-    if (lastEvent.type === "error") {
+    if (event.type === "error") {
       setPendingConnectAction(null);
-      if (lastEvent.state) {
-        setBoardState(lastEvent.state);
+      if (event.state) {
+        setBoardState(event.state);
       }
       setIsSyncingRooms(false);
-      setFeedbackMessage(lastEvent.message);
+      setFeedbackMessage(event.message);
       setFeedbackTone("destructive");
       return;
     }
 
-    if (lastEvent.type === "show_rooms") {
-      setAvailableRooms(lastEvent.rooms);
+    if (event.type === "show_rooms") {
+      setAvailableRooms(event.rooms);
       setIsSyncingRooms(false);
       if (pendingConnectAction === "rooms" || currentScreenRef.current === "rooms") {
         setScreen("rooms");
@@ -181,9 +185,9 @@ export function GameApp() {
       return;
     }
 
-    if (lastEvent.type === "matchmaking" || lastEvent.type === "join_room") {
+    if (event.type === "matchmaking" || event.type === "join_room") {
       setPendingConnectAction(null);
-      const result = lastEvent.result;
+      const result = event.result;
       const preservedBoardState =
         boardState?.id === result.room.room_id ? boardState : null;
 
@@ -220,38 +224,38 @@ export function GameApp() {
       return;
     }
 
-    if (lastEvent.type !== "board_state") {
+    if (event.type !== "board_state") {
       return;
     }
 
     const previousBoardStatus = previousBoardStatusRef.current;
     const isFreshMatchFound =
-      lastEvent.state.status === "in_progress" &&
+      event.state.status === "in_progress" &&
       (previousBoardStatus === "queued" ||
         (previousBoardStatus === null &&
           currentScreenRef.current === "waitingRoom"));
 
-    const livePlayerId = derivePlayerId(lastEvent.state);
+    const livePlayerId = derivePlayerId(event.state);
     if (livePlayerId !== null && livePlayerId !== session.playerId) {
       setSession({ playerId: livePlayerId });
     }
 
-    setBoardState(lastEvent.state);
-    previousBoardStatusRef.current = lastEvent.state.status;
+    setBoardState(event.state);
+    previousBoardStatusRef.current = event.state.status;
 
-    if (lastEvent.message) {
-      const feedback = getFeedbackPresentation(lastEvent.message);
+    if (event.message) {
+      const feedback = getFeedbackPresentation(event.message);
       setFeedbackMessage(feedback.message);
       setFeedbackTone(feedback.tone);
     }
 
-    if (lastEvent.state.status === "completed") {
-      setFinalBoardState(lastEvent.state);
+    if (event.state.status === "completed") {
+      setFinalBoardState(event.state);
       setScreen("gameComplete");
       return;
     }
 
-    if (lastEvent.state.status === "in_progress") {
+    if (event.state.status === "in_progress") {
       if (isFreshMatchFound) {
         setFeedbackMessage("Starting game");
         setFeedbackTone("default");
@@ -262,8 +266,9 @@ export function GameApp() {
 
     setScreen("waitingRoom");
   }, [
+    consumeEvent,
     derivePlayerId,
-    lastEvent,
+    nextEvent,
     pendingConnectAction,
     session.playerId,
     session.playerName,

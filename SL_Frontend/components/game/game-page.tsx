@@ -192,7 +192,6 @@ export function GamePage({
   useEffect(() => {
     if (prevBoardStateRef.current) {
       const newAnimations = new Map<string, AnimationStep[]>();
-      let pendingSpecialMove: SpecialMoveSound | null = null;
       
       boardState.players.forEach((player) => {
         const prevPlayer = prevBoardStateRef.current?.players.find(
@@ -209,27 +208,15 @@ export function GamePage({
         const animationSteps = buildAnimationSteps(prevPlayer, player, boardState);
         if (animationSteps.length > 0) {
           newAnimations.set(player.player_name, animationSteps);
-          if (player.player_name === playerName) {
-            const specialStep = animationSteps.find(
-              (step): step is AnimationStep & { motion: SpecialMoveSound } =>
-                step.motion === "snake" || step.motion === "ladder"
-            );
-            if (specialStep) {
-              pendingSpecialMove = specialStep.motion;
-            }
-          }
         }
       });
       
       if (newAnimations.size > 0) {
         setAnimatingPlayers(newAnimations);
       }
-      if (pendingSpecialMove) {
-        playSpecialMoveEffect(pendingSpecialMove);
-      }
     }
     prevBoardStateRef.current = boardState;
-  }, [boardState, playSpecialMoveEffect, playerName]);
+  }, [boardState]);
 
   // Clear animations after they complete
   useEffect(() => {
@@ -360,6 +347,8 @@ export function GamePage({
             animatingPlayers={animatingPlayers}
             currentTurnPid={boardState.current_turn_pid}
             localPlayerId={playerId}
+            localPlayerName={playerName}
+            onSpecialMoveStart={playSpecialMoveEffect}
           />
 
           {/* Side Panel */}
@@ -556,6 +545,8 @@ interface BoardGridProps {
   animatingPlayers: Map<string, AnimationStep[]>;
   currentTurnPid: number;
   localPlayerId: number | null;
+  localPlayerName: string;
+  onSpecialMoveStart: (motion: SpecialMoveSound) => void;
 }
 
 // Convert board position to grid coordinates
@@ -683,6 +674,8 @@ function BoardGrid({
   animatingPlayers,
   currentTurnPid,
   localPlayerId,
+  localPlayerName,
+  onSpecialMoveStart,
 }: BoardGridProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(0);
@@ -784,6 +777,9 @@ function BoardGrid({
                   isLocalPlayer={player.pid === localPlayerId}
                   playersAtSamePosition={players.filter(p => p.position === player.position).length}
                   indexAtPosition={players.filter(p => p.position === player.position).findIndex(p => p.pid === player.pid)}
+                  onSpecialMoveStart={
+                    player.player_name === localPlayerName ? onSpecialMoveStart : undefined
+                  }
                 />
               );
             })}
@@ -802,6 +798,7 @@ interface AnimatedDwarfTokenProps {
   isLocalPlayer: boolean;
   playersAtSamePosition: number;
   indexAtPosition: number;
+  onSpecialMoveStart?: (motion: SpecialMoveSound) => void;
 }
 
 function AnimatedDwarfToken({
@@ -812,17 +809,21 @@ function AnimatedDwarfToken({
   isLocalPlayer,
   playersAtSamePosition,
   indexAtPosition,
+  onSpecialMoveStart,
 }: AnimatedDwarfTokenProps) {
   const [currentAnimStep, setCurrentAnimStep] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const lastTriggeredSpecialStepRef = useRef<number | null>(null);
 
   // Reset animation when path changes
   useEffect(() => {
     if (animationPath && animationPath.length > 0) {
       setCurrentAnimStep(0);
       setIsAnimating(true);
+      lastTriggeredSpecialStepRef.current = null;
     } else {
       setIsAnimating(false);
+      lastTriggeredSpecialStepRef.current = null;
     }
   }, [animationPath]);
 
@@ -862,6 +863,21 @@ function AnimatedDwarfToken({
     isAnimating && animationPath && currentAnimStep > 0
       ? animationPath[currentAnimStep - 1]
       : null;
+
+  useEffect(() => {
+    if (
+      !activeStep ||
+      !onSpecialMoveStart ||
+      (activeStep.motion !== "snake" && activeStep.motion !== "ladder")
+    ) {
+      return;
+    }
+    if (lastTriggeredSpecialStepRef.current === currentAnimStep) {
+      return;
+    }
+    lastTriggeredSpecialStepRef.current = currentAnimStep
+    onSpecialMoveStart(activeStep.motion);
+  }, [activeStep, currentAnimStep, onSpecialMoveStart]);
 
   const gap = 2; // gap in pixels (matching gap-0.5 md:gap-1)
 

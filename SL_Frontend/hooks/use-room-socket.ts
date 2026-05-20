@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ClientWebSocketEvent,
   ServerWebSocketEvent,
@@ -24,12 +24,12 @@ export function useRoomSocket(
   connectionLabel = "room"
 ) {
   const socketRef = useRef<WebSocket | null>(null);
-  const [lastEvent, setLastEvent] = useState<ServerWebSocketEvent | null>(null);
+  const [eventQueue, setEventQueue] = useState<ServerWebSocketEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLastEvent(null);
+    setEventQueue([]);
 
     if (!playerName) {
       setIsConnected(false);
@@ -58,7 +58,10 @@ export function useRoomSocket(
       }
 
       try {
-        setLastEvent(JSON.parse(event.data) as ServerWebSocketEvent);
+        setEventQueue((queue) => [
+          ...queue,
+          JSON.parse(event.data) as ServerWebSocketEvent,
+        ]);
       } catch {
         setConnectionError(`Received an invalid ${connectionLabel} update.`);
       }
@@ -104,8 +107,13 @@ export function useRoomSocket(
     return true;
   };
 
+  const consumeEvent = useCallback(() => {
+    setEventQueue((queue) => queue.slice(1));
+  }, []);
+
   return {
-    lastEvent,
+    eventQueue,
+    consumeEvent,
     isConnected,
     connectionError,
     sendEvent,
