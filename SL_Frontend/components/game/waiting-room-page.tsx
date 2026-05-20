@@ -3,8 +3,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ChatPanel } from "@/components/game/chat-panel";
 import { ArrowLeft, Users, Clock, Loader2 } from "lucide-react";
-import type { BoardState } from "@/types/game";
+import type { BoardState, ChatMessage } from "@/types/game";
 
 interface WaitingRoomPageProps {
   roomId: string;
@@ -13,6 +14,10 @@ interface WaitingRoomPageProps {
   boardState: BoardState | null;
   isConnected: boolean;
   onBack: () => void;
+  globalMessages: ChatMessage[];
+  roomMessages: ChatMessage[];
+  onSendGlobalMessage: (message: string) => string | null;
+  onSendRoomMessage: (message: string) => string | null;
 }
 
 export function WaitingRoomPage({
@@ -22,6 +27,10 @@ export function WaitingRoomPage({
   boardState,
   isConnected,
   onBack,
+  globalMessages,
+  roomMessages,
+  onSendGlobalMessage,
+  onSendRoomMessage,
 }: WaitingRoomPageProps) {
   const players = boardState?.players || [];
   const joinedCount = players.length;
@@ -31,8 +40,8 @@ export function WaitingRoomPage({
   const roomStatus = boardState?.status || (isConnected ? "queued" : "connecting");
 
   return (
-    <div className="min-h-screen p-4 bg-background flex items-center justify-center">
-      <div className="w-full max-w-lg">
+    <div className="min-h-screen bg-background p-4">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="flex items-center justify-between mb-6">
           <Button
             variant="ghost"
@@ -57,98 +66,112 @@ export function WaitingRoomPage({
           </span>
         </div>
 
-        <Card className="border-2 border-border/50 bg-card/80 backdrop-blur-sm shadow-xl">
-          <CardHeader className="text-center pb-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto mb-4">
-              <Clock className="w-8 h-8 text-primary animate-pulse" />
-            </div>
-            <CardTitle className="text-2xl">Waiting for Players</CardTitle>
-            <CardDescription>
-              Game will start automatically when all players join
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-                  Room Name
-                </p>
-                <p className="font-medium text-foreground">{roomName}</p>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+          <Card className="border-2 border-border/50 bg-card/80 shadow-xl backdrop-blur-sm">
+            <CardHeader className="text-center pb-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto mb-4">
+                <Clock className="w-8 h-8 text-primary animate-pulse" />
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-                  Status
-                </p>
-                <Badge variant="secondary" className="bg-accent/20">
-                  {roomStatus}
-                </Badge>
+              <CardTitle className="text-2xl">Waiting for Players</CardTitle>
+              <CardDescription>
+                Game will start automatically when all players join
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/30 p-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                    Room Name
+                  </p>
+                  <p className="font-medium text-foreground">{roomName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                    Status
+                  </p>
+                  <Badge variant="secondary" className="bg-accent/20">
+                    {roomStatus}
+                  </Badge>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                    Room ID
+                  </p>
+                  <p className="font-mono text-sm text-muted-foreground">
+                    {roomId}
+                  </p>
+                </div>
               </div>
-              <div className="col-span-2">
-                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
-                  Room ID
-                </p>
-                <p className="font-mono text-sm text-muted-foreground">
-                  {roomId}
-                </p>
-              </div>
-            </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-foreground">
-                  <Users className="w-5 h-5" />
-                  Players
-                </span>
-                <span className="font-bold text-lg">
-                  {joinedCount} / {requiredPlayers}
-                </span>
-              </div>
-              <div className="h-3 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-all duration-500 ease-out"
-                  style={{ width: `${(joinedCount / requiredPlayers) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-medium text-foreground">
-                Player Roster
-              </h3>
-              <div className="grid grid-cols-2 gap-3">
-                {players.map((player, index) => (
-                  <PlayerSlot
-                    key={player.pid}
-                    playerName={player.player_name}
-                    isCurrentPlayer={player.player_name === playerName}
-                    index={index}
-                    filled
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-foreground">
+                    <Users className="w-5 h-5" />
+                    Players
+                  </span>
+                  <span className="font-bold text-lg">
+                    {joinedCount} / {requiredPlayers}
+                  </span>
+                </div>
+                <div className="h-3 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-500 ease-out"
+                    style={{ width: `${(joinedCount / requiredPlayers) * 100}%` }}
                   />
-                ))}
-                {Array.from({ length: waitingCount }).map((_, index) => (
-                  <PlayerSlot
-                    key={`waiting-${index}`}
-                    index={joinedCount + index}
-                    filled={false}
-                  />
-                ))}
+                </div>
               </div>
-            </div>
 
-            <div className="text-center py-4">
-              <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium text-foreground">
+                  Player Roster
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {players.map((player, index) => (
+                    <PlayerSlot
+                      key={player.pid}
+                      playerName={player.player_name}
+                      isCurrentPlayer={player.player_name === playerName}
+                      index={index}
+                      filled
+                    />
+                  ))}
+                  {Array.from({ length: waitingCount }).map((_, index) => (
+                    <PlayerSlot
+                      key={`waiting-${index}`}
+                      index={joinedCount + index}
+                      filled={false}
+                    />
+                  ))}
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground mt-3">
-                {boardState
-                  ? `Waiting for ${waitingCount} more ${waitingCount === 1 ? "player" : "players"}...`
-                  : "Syncing room state..."}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                </div>
+                <p className="text-sm text-muted-foreground mt-3">
+                  {boardState
+                    ? `Waiting for ${waitingCount} more ${waitingCount === 1 ? "player" : "players"}...`
+                    : "Syncing room state..."}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <ChatPanel
+            playerName={playerName}
+            isConnected={isConnected}
+            globalMessages={globalMessages}
+            roomMessages={roomMessages}
+            allowRoomChat
+            roomName={roomName}
+            onSendGlobalMessage={onSendGlobalMessage}
+            onSendRoomMessage={onSendRoomMessage}
+            className="xl:sticky xl:top-4"
+          />
+        </div>
       </div>
     </div>
   );

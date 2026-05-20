@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ChatPanel } from "@/components/game/chat-panel";
 import { ArrowLeft, RefreshCw, Users, X, DoorOpen } from "lucide-react";
-import type { RoomState } from "@/types/game";
+import type { ChatMessage, RoomState } from "@/types/game";
 
 interface RoomsPageProps {
   playerName: string;
@@ -17,6 +18,9 @@ interface RoomsPageProps {
   isLoading: boolean;
   error: string | null;
   onClearError: () => void;
+  isConnected: boolean;
+  globalMessages: ChatMessage[];
+  onSendGlobalMessage: (message: string) => string | null;
 }
 
 export function RoomsPage({
@@ -29,6 +33,9 @@ export function RoomsPage({
   isLoading,
   error,
   onClearError,
+  isConnected,
+  globalMessages,
+  onSendGlobalMessage,
 }: RoomsPageProps) {
   // Sort rooms: highest joined first, then lowest available slots, then by name
   const sortedRooms = [...(rooms || [])].sort((a, b) => {
@@ -46,8 +53,8 @@ export function RoomsPage({
   );
 
   return (
-    <div className="min-h-screen p-4 bg-background">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-background p-4">
+      <div className="mx-auto max-w-6xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <Button
@@ -98,30 +105,39 @@ export function RoomsPage({
           </Alert>
         )}
 
-        {/* Rooms List */}
-        <div className="space-y-4">
-          {joinableRooms.length === 0 ? (
-            <Card className="border-2 border-dashed border-border/50">
-              <CardContent className="py-12 text-center">
-                <DoorOpen className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-                <p className="text-lg text-muted-foreground mb-2">
-                  No rooms available
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Start matchmaking to create a new game
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            joinableRooms.map((room) => (
-              <RoomCard
-                key={room.room_id}
-                room={room}
-                onJoin={() => onJoinRoom(room.room_id)}
-                isJoining={isLoading}
-              />
-            ))
-          )}
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_360px] xl:items-start">
+          <div className="space-y-4">
+            {joinableRooms.length === 0 ? (
+              <Card className="border-2 border-dashed border-border/50">
+                <CardContent className="py-12 text-center">
+                  <DoorOpen className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+                  <p className="text-lg text-muted-foreground mb-2">
+                    No rooms available
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Start matchmaking to create a new game
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              joinableRooms.map((room) => (
+                <RoomCard
+                  key={room.room_id}
+                  room={room}
+                  onJoin={() => onJoinRoom(room.room_id)}
+                  isJoining={isLoading}
+                />
+              ))
+            )}
+          </div>
+
+          <ChatPanel
+            playerName={playerName}
+            isConnected={isConnected}
+            globalMessages={globalMessages}
+            onSendGlobalMessage={onSendGlobalMessage}
+            className="xl:sticky xl:top-4"
+          />
         </div>
       </div>
     </div>

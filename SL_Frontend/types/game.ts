@@ -90,6 +90,13 @@ export interface WebSocketShowRoomsEvent {
   message?: string;
 }
 
+export interface WebSocketChatEvent {
+  type: "global_chat" | "room_chat";
+  player_name: string;
+  room_id?: string;
+  message: string;
+}
+
 export interface WebSocketMatchmakingRequestEvent {
   type: "matchmaking";
   player_name?: string;
@@ -106,17 +113,39 @@ export interface WebSocketShowRoomsRequestEvent {
   type: "show_rooms";
 }
 
+export interface WebSocketGlobalChatRequestEvent {
+  type: "global_chat";
+  message: string;
+}
+
+export interface WebSocketRoomChatRequestEvent {
+  type: "room_chat";
+  message: string;
+}
+
 export type ServerWebSocketEvent =
   | WebSocketBoardStateEvent
   | WebSocketErrorEvent
   | WebSocketMatchmakingEvent
-  | WebSocketShowRoomsEvent;
+  | WebSocketShowRoomsEvent
+  | WebSocketChatEvent;
 
 export type ClientWebSocketEvent =
   | WebSocketRollDiceEvent
   | WebSocketMatchmakingRequestEvent
   | WebSocketJoinRoomRequestEvent
-  | WebSocketShowRoomsRequestEvent;
+  | WebSocketShowRoomsRequestEvent
+  | WebSocketGlobalChatRequestEvent
+  | WebSocketRoomChatRequestEvent;
+
+export interface ChatMessage {
+  id: string;
+  type: "global_chat" | "room_chat";
+  playerName: string;
+  roomId?: string;
+  message: string;
+  sentAt: number;
+}
 
 export interface SessionState {
   playerName: string;

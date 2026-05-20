@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type {
   BoardState,
+  ChatMessage,
   ClientWebSocketEvent,
   GameStatus,
   RoomState,
@@ -25,6 +26,15 @@ const pageVariants = {
 type FeedbackTone = "default" | "destructive";
 
 const FEEDBACK_AUTO_DISMISS_MS = 5000;
+const MAX_CHAT_MESSAGES = 80;
+
+function appendChatMessage(messages: ChatMessage[], nextMessage: ChatMessage): ChatMessage[] {
+  const nextMessages = [...messages, nextMessage];
+  if (nextMessages.length <= MAX_CHAT_MESSAGES) {
+    return nextMessages;
+  }
+  return nextMessages.slice(nextMessages.length - MAX_CHAT_MESSAGES);
+}
 
 function getFeedbackPresentation(message: string): {
   message: string;
@@ -78,6 +88,8 @@ export function GameApp() {
   const [pendingSocketEvent, setPendingSocketEvent] =
     useState<ClientWebSocketEvent | null>(null);
   const [finalBoardState, setFinalBoardState] = useState<BoardState | null>(null);
+  const [globalChatMessages, setGlobalChatMessages] = useState<ChatMessage[]>([]);
+  const [roomChatMessages, setRoomChatMessages] = useState<ChatMessage[]>([]);
   const previousBoardStatusRef = useRef<GameStatus | null>(null);
   const currentScreenRef = useRef(screen);
 
@@ -106,6 +118,25 @@ export function GameApp() {
 
   useEffect(() => {
     if (!lastEvent) {
+      return;
+    }
+
+    if (lastEvent.type === "global_chat" || lastEvent.type === "room_chat") {
+      const nextMessage: ChatMessage = {
+        id: `${lastEvent.type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: lastEvent.type,
+        playerName: lastEvent.player_name,
+        roomId: lastEvent.room_id,
+        message: lastEvent.message,
+        sentAt: Date.now(),
+      };
+
+      if (lastEvent.type === "global_chat") {
+        setGlobalChatMessages((messages) => appendChatMessage(messages, nextMessage));
+        return;
+      }
+
+      setRoomChatMessages((messages) => appendChatMessage(messages, nextMessage));
       return;
     }
 
@@ -249,6 +280,7 @@ export function GameApp() {
     setBoardState(null);
     setAvailableRooms([]);
     setFinalBoardState(null);
+    setRoomChatMessages([]);
     setFeedbackMessage(null);
     setFeedbackTone("default");
     setIsLoading(false);
@@ -337,6 +369,30 @@ export function GameApp() {
     }
   };
 
+  const handleSendGlobalMessage = (message: string): string | null => {
+    if (!session.playerName) {
+      return "Choose a player name before sending chat.";
+    }
+
+    const didSend = sendEvent({ type: "global_chat", message });
+    if (!didSend) {
+      return "Socket connection is not ready yet.";
+    }
+    return null;
+  };
+
+  const handleSendRoomMessage = (message: string): string | null => {
+    if (!session.roomId) {
+      return "Join a room before using room chat.";
+    }
+
+    const didSend = sendEvent({ type: "room_chat", message });
+    if (!didSend) {
+      return "Socket connection is not ready yet.";
+    }
+    return null;
+  };
+
   if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -386,6 +442,9 @@ export function GameApp() {
               playerName={session.playerName}
               rooms={availableRooms}
               isSyncing={isSyncingRooms}
+              isConnected={isConnected}
+              globalMessages={globalChatMessages}
+              onSendGlobalMessage={handleSendGlobalMessage}
               onRefresh={() => {
                 setIsSyncingRooms(true);
                 setPendingSocketEvent({ type: "show_rooms" });
@@ -414,6 +473,10 @@ export function GameApp() {
               requiredPlayers={session.requiredPlayers}
               boardState={boardState}
               isConnected={isConnected}
+              globalMessages={globalChatMessages}
+              roomMessages={roomChatMessages}
+              onSendGlobalMessage={handleSendGlobalMessage}
+              onSendRoomMessage={handleSendRoomMessage}
               onBack={handleLeaveRoom}
             />
           </motion.div>
@@ -438,6 +501,10 @@ export function GameApp() {
               feedbackMessage={feedbackMessage}
               feedbackTone={feedbackTone}
               onClearFeedback={() => setFeedbackMessage(null)}
+              globalMessages={globalChatMessages}
+              roomMessages={roomChatMessages}
+              onSendGlobalMessage={handleSendGlobalMessage}
+              onSendRoomMessage={handleSendRoomMessage}
             />
           </motion.div>
         )}

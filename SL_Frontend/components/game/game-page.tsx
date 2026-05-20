@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ChatPanel } from "@/components/game/chat-panel";
 import { AlertTriangle, Dices, X, Loader2 } from "lucide-react";
-import type { BoardState, BoardPlayerState } from "@/types/game";
+import type { BoardState, BoardPlayerState, ChatMessage } from "@/types/game";
 
 interface GamePageProps {
   boardState: BoardState;
@@ -19,6 +20,10 @@ interface GamePageProps {
   feedbackMessage: string | null;
   feedbackTone: "default" | "destructive";
   onClearFeedback: () => void;
+  globalMessages: ChatMessage[];
+  roomMessages: ChatMessage[];
+  onSendGlobalMessage: (message: string) => string | null;
+  onSendRoomMessage: (message: string) => string | null;
 }
 
 type AnimationMotion = "walk" | "snake" | "ladder";
@@ -122,6 +127,10 @@ export function GamePage({
   feedbackMessage,
   feedbackTone,
   onClearFeedback,
+  globalMessages,
+  roomMessages,
+  onSendGlobalMessage,
+  onSendRoomMessage,
 }: GamePageProps) {
   const [isDiceRolling, setIsDiceRolling] = useState(false);
   const [animatingPlayers, setAnimatingPlayers] = useState<Map<number, AnimationStep[]>>(new Map());
@@ -275,7 +284,7 @@ export function GamePage({
           </Alert>
         )}
 
-        <div className="grid lg:grid-cols-[1fr_280px] gap-4">
+        <div className="grid gap-4 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px]">
           {/* Game Board */}
           <BoardGrid
             players={boardState.players}
@@ -353,6 +362,17 @@ export function GamePage({
                 </div>
               </CardContent>
             </Card>
+
+            <ChatPanel
+              playerName={playerName}
+              isConnected={isConnected}
+              globalMessages={globalMessages}
+              roomMessages={roomMessages}
+              allowRoomChat
+              roomName={boardState.name}
+              onSendGlobalMessage={onSendGlobalMessage}
+              onSendRoomMessage={onSendRoomMessage}
+            />
           </div>
         </div>
       </div>
