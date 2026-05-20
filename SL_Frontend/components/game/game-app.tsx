@@ -207,6 +207,15 @@ export function GameApp() {
         setFeedbackMessage("Match found");
         setFeedbackTone("default");
       }
+      if (preservedBoardState?.status === "completed") {
+        setFinalBoardState(preservedBoardState);
+        setScreen("gameComplete");
+        return;
+      }
+      if (preservedBoardState?.status === "in_progress") {
+        setScreen("gameBoard");
+        return;
+      }
       setScreen("waitingRoom");
       return;
     }
